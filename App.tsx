@@ -1,20 +1,33 @@
+import React, { useEffect } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { RootNavigator } from './src/navigation/RootNavigator';
+import { AdventureProvider } from './src/hooks/useAdventure';
+import { ProfileProvider } from './src/hooks/useProfile';
+import { NoticeProvider } from './src/components/TravisNotice';
+import { notificationsService } from './src/services/notifications';
 
 export default function App() {
+  useEffect(() => {
+    // Initialize notifications
+    notificationsService.registerForPushNotificationsAsync();
+    // Schedule idle nudge (repeats every 3 days)
+    notificationsService.scheduleIdleNudge();
+  }, []);
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <SafeAreaProvider>
+      <NoticeProvider>
+        <ProfileProvider>
+          <AdventureProvider>
+            <NavigationContainer>
+              <RootNavigator />
+              <StatusBar style="dark" />
+            </NavigationContainer>
+          </AdventureProvider>
+        </ProfileProvider>
+      </NoticeProvider>
+    </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

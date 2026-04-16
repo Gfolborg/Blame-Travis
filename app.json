@@ -1,28 +1,50 @@
 {
   "expo": {
-    "name": "blame_travis",
-    "slug": "blame_travis",
-    "version": "1.0.0",
+    "name": "Blame Travis",
+    "slug": "blame-travis",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#121212"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gyasi.blametravis"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#121212"
       },
+      "package": "com.gyasi.blametravis",
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": true,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "FOREGROUND_SERVICE"
+      ]
     },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gyasi.blametravis",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Travis needs your location to scout the area and verify your adventure progress."
+      }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Travis needs your location to scout the area and verify your adventure progress."
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     }
