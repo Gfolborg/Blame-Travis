@@ -6,6 +6,8 @@ interface TravisPersonaParams {
   budget: string;
   stops: string[];
   weather?: string;
+  days: number;
+  isRoamer: boolean;
 }
 
 export const travisService = {
@@ -20,15 +22,32 @@ export const travisService = {
         return this.getFallbackNarrative(params);
       }
 
-      if (data.error) {
-        console.error('OpenRouter Error from Edge:', data.error);
-        return this.getFallbackNarrative(params);
-      }
-
-      return JSON.parse(data.choices[0].message.content);
+      // The Edge function now returns the JSON object directly
+      return data;
     } catch (error) {
       console.error('Travis Service Error:', error);
       return this.getFallbackNarrative(params);
+    }
+  },
+
+  async planRegionalAnchors(start: { lat: number; lng: number }, days: number): Promise<Array<{ lat: number; lng: number; dayStart: number; dayEnd: number; name: string }>> {
+    try {
+      const { data, error } = await supabase.functions.invoke('travis-narrative', {
+        body: {
+          action: 'plan-anchors',
+          start,
+          days
+        }
+      });
+
+      if (error || !data?.anchors) {
+        console.warn('Anchor planning failed, staying put.', error);
+        return [{ ...start, dayStart: 1, dayEnd: days, name: 'Starting Point' }];
+      }
+
+      return data.anchors;
+    } catch (e) {
+      return [{ ...start, dayStart: 1, dayEnd: days, name: 'Starting Point' }];
     }
   },
 
