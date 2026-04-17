@@ -6,9 +6,7 @@ import {
   TouchableOpacity, 
   ActivityIndicator, 
   ScrollView, 
-  Alert,
-  Image,
-  Dimensions
+  Image
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,11 +17,9 @@ import { supabase } from '../services/supabase';
 import { Adventure, ItineraryStop } from '../types/adventure';
 import { useAdventure } from '../hooks/useAdventure';
 import { useProfile } from '../hooks/useProfile';
-import { notificationsService } from '../services/notifications';
+import { useNotice } from '../components/TravisNotice';
 import { StopCard } from '../components/StopCard';
 import { InkBleedItem } from '../components/InkBleedItem';
-
-const { width } = Dimensions.get('window');
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AdventureReveal'>;
 
@@ -33,7 +29,8 @@ const AdventureRevealScreen: React.FC<Props> = ({ navigation, route }) => {
   const [loading, setLoading] = useState(true);
   const [committing, setCommitting] = useState(false);
   const { refreshAdventure } = useAdventure();
-  const { profile, updateProfile } = useProfile();
+  const { profile } = useProfile();
+  const { showNotice } = useNotice();
 
   // Date Selector Logic
   const getNext7Days = () => {
@@ -54,6 +51,7 @@ const AdventureRevealScreen: React.FC<Props> = ({ navigation, route }) => {
   }, [AdventureId]);
 
   const fetchAdventure = async () => {
+
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -92,7 +90,6 @@ const AdventureRevealScreen: React.FC<Props> = ({ navigation, route }) => {
 
       if (error) throw error;
 
-      await notificationsService.scheduleAdventureReminders(adventure.id, selectedDate.toISOString());
       await refreshAdventure();
       navigation.navigate('MainTabs', { screen: 'Home' });
 
@@ -104,14 +101,15 @@ const AdventureRevealScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const handleReroll = async () => {
-    Alert.alert(
-      "DISCARD THIS PLAN?",
-      "Travis: 'Throwing this one in the fire? It will be gone forever. Ready to try again?'",
-      [
-        { text: "KEEP IT", style: "cancel" },
-        { text: "DISCARD & RE-DRAFT", style: "destructive", onPress: executeReroll }
-      ]
-    );
+    showNotice({
+      title: 'DISCARD THIS PLAN?',
+      message: "Travis: 'Throwing this one in the fire? It will be gone forever. Ready to try again?'",
+      type: 'warning',
+      actions: [
+        { text: 'KEEP IT', style: 'cancel', onPress: () => {} },
+        { text: 'DISCARD & RE-DRAFT', style: 'destructive', onPress: executeReroll },
+      ],
+    });
   };
 
   const executeReroll = async () => {
@@ -171,7 +169,7 @@ const AdventureRevealScreen: React.FC<Props> = ({ navigation, route }) => {
         <View style={styles.assignmentContainer}>
           <View style={styles.imageHeader}>
              <Image 
-                source={require('../../assets/textures/vintage-satellite-map.png')} 
+                source={adventure.hero_image_url ? { uri: adventure.hero_image_url } : require('../../assets/textures/vintage-satellite-map.png')} 
                 style={styles.heroImage}
                 resizeMode="cover"
              />

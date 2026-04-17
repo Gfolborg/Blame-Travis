@@ -5,7 +5,6 @@ import {
   StyleSheet, 
   TouchableOpacity, 
   Image, 
-  Dimensions,
   ActivityIndicator,
   StatusBar
 } from 'react-native';
@@ -20,19 +19,20 @@ import { Adventure } from '../types/adventure';
 import { useAdventure } from '../hooks/useAdventure';
 import { useNotice } from '../components/TravisNotice';
 
-const { width, height } = Dimensions.get('window');
-
 type Props = NativeStackScreenProps<RootStackParamList, 'AdventureAssignment'>;
 
 const AdventureAssignmentScreen: React.FC<Props> = ({ navigation, route }) => {
-  const { AdventureId } = route.params;
-  const [adventure, setAdventure] = useState<Adventure | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { AdventureId, initialAdventure } = route.params;
+  const [adventure, setAdventure] = useState<Adventure | null>(initialAdventure || null);
+  const [dataLoading, setDataLoading] = useState(!initialAdventure);
+  const [imageReady, setImageReady] = useState(false);
   const { refreshAdventure } = useAdventure();
   const { showNotice } = useNotice();
 
   useEffect(() => {
-    fetchAdventure();
+    if (!adventure) {
+      fetchAdventure();
+    }
   }, [AdventureId]);
 
   const fetchAdventure = async () => {
@@ -48,7 +48,7 @@ const AdventureAssignmentScreen: React.FC<Props> = ({ navigation, route }) => {
     } catch (error) {
       console.error('Error fetching assignment:', error);
     } finally {
-      setLoading(false);
+      setDataLoading(false);
     }
   };
 
@@ -66,7 +66,7 @@ const AdventureAssignmentScreen: React.FC<Props> = ({ navigation, route }) => {
             try {
               await supabase.from('adventures').delete().eq('id', AdventureId);
               await refreshAdventure();
-              navigation.navigate('MainTabs');
+              navigation.navigate('MainTabs', { screen: 'Home' });
             } catch (error) {
               console.error('Failed to scrap plan:', error);
             }
@@ -76,74 +76,71 @@ const AdventureAssignmentScreen: React.FC<Props> = ({ navigation, route }) => {
     });
   };
 
-  if (loading || !adventure) {
-    return (
-      <View style={styles.loadingContainer}>
-        <TravisSignal status="thinking" size={80} />
-        <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 24 }} />
-      </View>
-    );
-  }
+  // The final screen is only "ready" when data is here AND image is rendered
+  const isFullyReady = !dataLoading && adventure && imageReady;
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       
-      {/* FULL SCREEN POSTCARD HERO */}
-      <View style={styles.backgroundContainer}>
-        {adventure.hero_image_url ? (
-          <Image 
-            source={{ uri: adventure.hero_image_url }} 
-            style={styles.backgroundImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <Image 
-            source={require('../../assets/textures/vintage-satellite-map.png')} 
-            style={styles.backgroundImage}
-            resizeMode="cover"
-          />
-        )}
-        <View style={styles.imageOverlay} />
-      </View>
-
-      <SafeAreaView style={styles.safeArea}>
-        {/* TOP MENU */}
-        <View style={styles.header}>
-           <TouchableOpacity 
-            style={styles.backButton} 
-            onPress={() => navigation.navigate('MainTabs')}
-          >
-            <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          <View style={styles.signalBadge}>
-            <TravisSignal status="tracking" size={30} />
-          </View>
+      {/* BACKGROUND IMAGE - Always rendering in background, but hidden until ready */}
+      {adventure?.hero_image_url && (
+        <Image 
+          source={{ uri: adventure.hero_image_url }} 
+          style={[styles.backgroundImage, !isFullyReady && { opacity: 0 }]}
+          resizeMode="cover"
+          onLoad={() => setImageReady(true)}
+        />
+      )}
+      
+      {!isFullyReady ? (
+        <View style={styles.loadingContainer}>
+          <TravisSignal status="thinking" size={120} />
+          <Text style={styles.loadingText}>DEVELOPING THE ITINERARY...</Text>
+          <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 24 }} />
         </View>
-
-        {/* BOTTOM CONTENT OVERLAY */}
-        <View style={styles.bottomContent}>
-          <View style={styles.glassCard}>
-            <Text style={styles.title}>{adventure.title}</Text>
-            <Text style={styles.description}>{adventure.why_travis_picked_this}</Text>
-
-            <View style={styles.footerActions}>
-              <TouchableOpacity 
-                style={styles.button}
-                onPress={() => navigation.replace('AdventureReveal', { AdventureId: adventure.id })}
-                activeOpacity={0.8}
+      ) : (
+        <>
+          <View style={styles.imageOverlay} />
+          <SafeAreaView style={styles.safeArea}>
+            {/* TOP MENU */}
+            <View style={styles.header}>
+               <TouchableOpacity 
+                style={styles.backButton} 
+                onPress={() => navigation.navigate('MainTabs', { screen: 'Home' })}
               >
-                <Text style={styles.buttonText}>Let's Go!</Text>
-                <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+                <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
               </TouchableOpacity>
-
-              <TouchableOpacity style={styles.scrapLink} onPress={handleScrap}>
-                <Text style={styles.scrapText}>SCRAP THIS PLAN</Text>
-              </TouchableOpacity>
+              <View style={styles.signalBadge}>
+                <TravisSignal status="tracking" size={30} />
+              </View>
             </View>
-          </View>
-        </View>
-      </SafeAreaView>
+
+            {/* BOTTOM CONTENT OVERLAY */}
+            <View style={styles.bottomContent}>
+              <View style={styles.glassCard}>
+                <Text style={styles.title}>{adventure?.title}</Text>
+                <Text style={styles.description}>{adventure?.why_travis_picked_this}</Text>
+
+                <View style={styles.footerActions}>
+                  <TouchableOpacity 
+                    style={styles.button}
+                    onPress={() => navigation.replace('AdventureReveal', { AdventureId: adventure?.id || '' })}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.buttonText}>Let's Go!</Text>
+                    <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.scrapLink} onPress={handleScrap}>
+                    <Text style={styles.scrapText}>SCRAP THIS PLAN</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </SafeAreaView>
+        </>
+      )}
     </View>
   );
 };
@@ -154,21 +151,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
   loadingContainer: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: theme.colors.background,
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    zIndex: 100,
   },
-  backgroundContainer: {
-    ...StyleSheet.absoluteFillObject,
+  loadingText: {
+    marginTop: 20,
+    color: theme.colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 2,
   },
   backgroundImage: {
+    ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },
   imageOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.2)', // Dim slightly for legibility
+    backgroundColor: 'rgba(0,0,0,0.2)',
   },
   safeArea: {
     flex: 1,

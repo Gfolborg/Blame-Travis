@@ -119,103 +119,104 @@ const HomeScreen = () => {
   const isDraft = currentAdventure?.status === 'draft';
   const isActive = currentAdventure?.status === 'active';
   const canReroll = rerollTimeLeft > 0;
+  const showEmptyDesk =
+    !currentAdventure ||
+    currentAdventure.status === 'completed' ||
+    currentAdventure.status === 'missed';
 
   return (
     <SafeAreaView style={styles.container}>
       <MapBackground scrollOffset={scrollY} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleAbandon}>
-          <Ionicons name="trash-outline" size={24} color={currentAdventure ? theme.colors.primary : theme.colors.textSecondary} />
-        </TouchableOpacity>
+        {showEmptyDesk ? (
+          <View style={styles.headerPlaceholder} />
+        ) : (
+          <TouchableOpacity onPress={handleAbandon}>
+            <Ionicons name="trash-outline" size={24} color={theme.colors.primary} />
+          </TouchableOpacity>
+        )}
         <Text style={styles.headerTitle}>The Desk</Text>
         <TravisSignal status={isActive ? 'tracking' : 'idle'} size={40} />
       </View>
 
       <Animated.ScrollView 
         showsVerticalScrollIndicator={false} 
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={showEmptyDesk ? styles.emptyScrollContent : styles.scrollContent}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
       >
-
-        {(!currentAdventure || currentAdventure.status === 'completed' || currentAdventure.status === 'missed') && (
-          <TouchableOpacity 
-            style={styles.requestCard}
-            activeOpacity={0.9}
-            onPress={() => navigation.navigate('AdventureRequest')}
-          >
-            <View>
-              <Text style={styles.requestTitle}>Draft An Itinerary</Text>
-              <Text style={styles.requestSubtitle}>Grab your passport. Let's build a journey.</Text>
-            </View>
-            <View style={styles.requestIcon}>
-              <Ionicons name="add" size={30} color={theme.colors.surface} />
-            </View>
-          </TouchableOpacity>
-        )}
-
-        <View style={styles.AdventureHeader}>
-          <View style={styles.titleRow}>
-            <Text style={styles.AdventureTitle}>{adventureTitle}</Text>
-            {isDraft && (
-              <View style={styles.draftBadge}>
-                <Text style={styles.draftText}>DRAFT</Text>
-              </View>
-            )}
+        {showEmptyDesk ? (
+          <View style={styles.emptyDesk}>
+            <Text style={styles.emptyDeskTitle}>Nothing planned yet</Text>
+            <Text style={styles.emptyDeskSubtitle}>
+              Ask Travis to draft your next itinerary when you're ready to get moving.
+            </Text>
+            <TouchableOpacity
+              style={styles.emptyDeskButton}
+              activeOpacity={0.9}
+              onPress={() => navigation.navigate('AdventureRequest')}
+            >
+              <Text style={styles.emptyDeskButtonText}>Draft an itinerary</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.AdventureSubtitle}>
-            {isDraft ? "Awaiting your signature..." : "The open road awaits, Explorer."}
-          </Text>
-        </View>
-
-        {isDraft && (
-          <TouchableOpacity 
-            style={styles.commitButton}
-            onPress={() => navigation.navigate('AdventureReveal', { AdventureId: currentAdventure!.id })}
-          >
-              <Text style={styles.commitButtonText}>REVIEW THE ITINERARY</Text>
-          </TouchableOpacity>
-        )}
-
-        {currentAdventure && (
-          <View style={styles.itinerarySection}>
-            <View style={styles.itineraryHeader}>
-              <View>
-                <Text style={styles.itineraryTitle}>Itinerary</Text>
-                {canReroll && (
-                  <Text style={styles.rerollTimer}>
-                    Reroll window: {Math.floor(rerollTimeLeft / 60)}:{(rerollTimeLeft % 60).toString().padStart(2, '0')}
-                  </Text>
+        ) : (
+          <>
+            <View style={styles.AdventureHeader}>
+              <View style={styles.titleRow}>
+                <Text style={styles.AdventureTitle}>{adventureTitle}</Text>
+                {isDraft && (
+                  <View style={styles.draftBadge}>
+                    <Text style={styles.draftText}>DRAFT</Text>
+                  </View>
                 )}
               </View>
-              <TouchableOpacity><Text style={styles.viewAllText}>Map View</Text></TouchableOpacity>
+              <Text style={styles.AdventureSubtitle}>
+                {isDraft ? "Awaiting your signature..." : "The open road awaits, Explorer."}
+              </Text>
             </View>
 
-            {currentAdventure.itinerary_json.map((stop, index) => (
-              <InkBleedItem key={stop.place_id} delay={index * 200}>
-                <StopCard 
-                  stop={stop}
-                  onPress={() => navigation.navigate('LocationDetails', { locationId: stop.place_id })}
-                  renderRightAction={() => canReroll ? (
-                    <TouchableOpacity 
-                      onPress={() => handleStopReroll(stop.place_id, stop.category)}
-                      style={styles.rerollIconButton}
-                    >
-                      <Ionicons name="refresh-circle" size={28} color={theme.colors.primary} />
-                    </TouchableOpacity>
-                  ) : null}
-                />
-              </InkBleedItem>
-            ))}
-          </View>
-        )}
+            {isDraft && (
+              <TouchableOpacity 
+                style={styles.commitButton}
+                onPress={() => navigation.navigate('AdventureReveal', { AdventureId: currentAdventure!.id })}
+              >
+                  <Text style={styles.commitButtonText}>REVIEW THE ITINERARY</Text>
+              </TouchableOpacity>
+            )}
 
-        {!currentAdventure && (
-          <View style={styles.emptyState}>
-            <Ionicons name="map-outline" size={80} color={theme.colors.lightGray} />
-            <Text style={styles.emptyTitle}>NOTHING PLANNED YET</Text>
-            <Text style={styles.emptySubtitle}>You haven't asked Travis for an adventure yet. He's ready when you are.</Text>
-          </View>
+            {currentAdventure && (
+              <View style={styles.itinerarySection}>
+                <View style={styles.itineraryHeader}>
+                  <View>
+                    <Text style={styles.itineraryTitle}>Itinerary</Text>
+                    {canReroll && (
+                      <Text style={styles.rerollTimer}>
+                        Reroll window: {Math.floor(rerollTimeLeft / 60)}:{(rerollTimeLeft % 60).toString().padStart(2, '0')}
+                      </Text>
+                    )}
+                  </View>
+                  <TouchableOpacity><Text style={styles.viewAllText}>Map View</Text></TouchableOpacity>
+                </View>
+
+                {currentAdventure.itinerary_json.map((stop, index) => (
+                  <InkBleedItem key={stop.place_id} delay={index * 200}>
+                    <StopCard 
+                      stop={stop}
+                      onPress={() => navigation.navigate('LocationDetails', { locationId: stop.place_id })}
+                      renderRightAction={() => canReroll ? (
+                        <TouchableOpacity 
+                          onPress={() => handleStopReroll(stop.place_id, stop.category)}
+                          style={styles.rerollIconButton}
+                        >
+                          <Ionicons name="refresh-circle" size={28} color={theme.colors.primary} />
+                        </TouchableOpacity>
+                      ) : null}
+                    />
+                  </InkBleedItem>
+                ))}
+              </View>
+            )}
+          </>
         )}
       </Animated.ScrollView>
     </SafeAreaView>
@@ -226,23 +227,31 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   loadingContainer: { flex: 1, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md, height: 60 },
+  headerPlaceholder: { width: 24, height: 24 },
   headerTitle: { color: theme.colors.textPrimary, fontSize: 18, fontWeight: '900', letterSpacing: 1 },
   scrollContent: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl, paddingBottom: 120 },
-  requestCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 24,
-    padding: theme.spacing.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 32,
-    borderWidth: 2,
-    borderColor: theme.colors.textPrimary,
-    borderStyle: 'dashed',
+  emptyScrollContent: { flexGrow: 1, paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl, paddingBottom: 120 },
+  emptyDesk: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: theme.spacing.huge },
+  emptyDeskTitle: { color: theme.colors.textPrimary, fontSize: 28, fontWeight: '900', textAlign: 'center' },
+  emptyDeskSubtitle: {
+    color: theme.colors.textSecondary,
+    fontSize: 16,
+    fontWeight: '500',
+    lineHeight: 24,
+    textAlign: 'center',
+    marginTop: theme.spacing.md,
+    maxWidth: 300,
   },
-  requestTitle: { color: theme.colors.textPrimary, fontSize: 20, fontWeight: '900', marginBottom: 4 },
-  requestSubtitle: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: '500' },
-  requestIcon: { width: 50, height: 50, borderRadius: 25, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
+  emptyDeskButton: {
+    marginTop: theme.spacing.xl,
+    backgroundColor: theme.colors.textPrimary,
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: 16,
+    borderRadius: theme.roundness.md,
+    minWidth: 220,
+    alignItems: 'center',
+  },
+  emptyDeskButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: '900', letterSpacing: 0.5 },
   AdventureHeader: { marginBottom: theme.spacing.xl },
   titleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   AdventureTitle: { color: theme.colors.textPrimary, fontSize: 28, fontWeight: '900', letterSpacing: 0.5, marginRight: 12 },
@@ -257,9 +266,6 @@ const styles = StyleSheet.create({
   rerollTimer: { color: theme.colors.primary, fontSize: 12, fontWeight: 'bold', marginTop: 2 },
   viewAllText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: '600' },
   rerollIconButton: { padding: 4 },
-  emptyState: { alignItems: 'center', justifyContent: 'center', marginTop: 60 },
-  emptyTitle: { color: theme.colors.textPrimary, fontSize: 20, fontWeight: '900', marginTop: 20 },
-  emptySubtitle: { color: theme.colors.textSecondary, fontSize: 14, textAlign: 'center', marginTop: 10, paddingHorizontal: 40 },
 });
 
 export default HomeScreen;

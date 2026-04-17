@@ -1,12 +1,13 @@
 import * as Location from 'expo-location';
 import { ItineraryStop, Adventure } from '../types/adventure';
 import { supabase } from './supabase';
-import { notificationsService } from './notifications';
 import { travisService } from './travis';
 import { weatherService } from './weather';
 
 interface DiscoveryParams {
-  location: string;
+  location?: string;
+  coords?: { lat: number; lng: number };
+  radius?: number;
   duration: string;
   vibe: string;
   budget: string;
@@ -40,13 +41,15 @@ export const discoveryService = {
     console.log('--- GENERATING ADVENTURE ---');
     console.log('Params:', params);
 
-    // 1. Determine Coordinates
-    const coords = await this.getCoordinates(params.location);
-    console.log('Coordinates Found:', coords);
+    // 1. Determine Coordinates & Radius
+    const coords = params.coords || await this.getCoordinates(params.location || 'current');
+    const radius = params.radius || (params.location === 'brave' ? 50000.0 : 10000.0);
+    const locationName = params.location || `${coords.lat.toFixed(2)}, ${coords.lng.toFixed(2)}`;
+    
+    console.log('Final Coordinates:', coords, 'Radius:', radius);
     
     // 2. Fetch Candidate Stops
-    const isBrave = params.location === 'brave';
-    const stops = await this.fetchStopsViaEdge(coords, params.vibe, params.duration, params.budget, isBrave);
+    const stops = await this.fetchStopsViaEdge(coords, params.vibe, params.duration, params.budget, radius);
     console.log(`Found ${stops.length} stops.`);
     
     if (stops.length === 0) {
@@ -67,7 +70,7 @@ export const discoveryService = {
     console.log('Requesting AI Narrative...');
     const narrative = await travisService.generateJourneyNarrative({
       vibes: params.vibe,
-      location: params.location,
+      location: locationName,
       budget: params.budget,
       stops: stops.map(s => s.name),
       weather: weatherContext,
@@ -79,11 +82,11 @@ export const discoveryService = {
     }));
 
     // 5. Package and Save
-    const adventure = this.packageAdventure(params, stopsWithInsights, user.id, narrative);
+    const adventure = this.packageAdventure(params, stopsWithInsights, userId, narrative);
     
     const { data, error } = await supabase
       .from('adventures')
-      .insert(adventure as any)
+      .insert({ ...adventure, hero_image_url: null } as any)
       .select()
       .single();
 
@@ -92,16 +95,30 @@ export const discoveryService = {
       throw error;
     }
 
-    await notificationsService.scheduleCommitmentNudge(data.id);
-
-    // 6. Generate Hero Image (Asynchronous - don't block the UI)
-    supabase.functions.invoke('generate-journey-image', {
-      body: { 
-        title: narrative.title, 
-        location: params.location, 
-        adventureId: data.id 
+    // 6. Generate Hero Image (Synchronous - wait for it so the UI is ready)
+    try {
+      console.log('--- TRIGGERING IMAGE GENERATION ---');
+      const { data: imageRes, error: invokeError } = await supabase.functions.invoke('generate-journey-image', {
+        body: { 
+          title: narrative.title, 
+          location: locationName, 
+          adventureId: data.id,
+          goal: narrative.main_goal,
+          stops: stops.map(s => s.name).slice(0, 3)
+        }
+      });
+      
+      if (invokeError) {
+        console.error('Edge Function Invoke Error (image-gen):', invokeError);
+      } else {
+        console.log('Edge Function Response (image-gen):', imageRes);
+        if (imageRes?.publicUrl) {
+          data.hero_image_url = imageRes.publicUrl;
+        }
       }
-    }).catch(e => console.error('Background image generation failed:', e));
+    } catch (e) {
+      console.error('Background image generation failed (client-side catch):', e);
+    }
 
     console.log('Adventure Stamped and Saved:', data.id);
     return data as unknown as Adventure;
@@ -137,8 +154,6 @@ export const discoveryService = {
       throw new Error(`EDGE_FUNCTION_ERROR: ${error.message}`);
     }
 
-    console.log('Geocode raw response:', data);
-
     if (!data?.places?.[0]?.location) {
       console.error('Geocode returned invalid format:', data);
       throw new Error(`CITY_NOT_FOUND: ${location}`);
@@ -155,12 +170,11 @@ export const discoveryService = {
     vibeStr: string,
     duration: string,
     budget: string,
-    isBrave: boolean
+    radius: number
   ): Promise<ItineraryStop[]> {
     const vibes = vibeStr.split(',');
     const priceLevels = BUDGET_TO_PRICE[budget] || ['PRICE_LEVEL_MODERATE'];
     const targetCount = duration === '1_day' ? 3 : duration === 'weekend' ? 6 : 10;
-    const radius = isBrave ? 50000.0 : 10000.0;
     
     let allStops: ItineraryStop[] = [];
     
@@ -216,6 +230,15 @@ export const discoveryService = {
           estimated_spend: spend 
         };
       });
+  },
+
+  async fetchRealStops(
+    coords: { lat: number; lng: number },
+    vibe: string,
+    duration: string,
+    budget: string,
+  ): Promise<ItineraryStop[]> {
+    return this.fetchStopsViaEdge(coords, vibe, duration, budget, 10000.0);
   },
 
   packageAdventure(

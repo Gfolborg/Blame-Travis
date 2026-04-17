@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { supabase } from '../services/supabase';
 import { Adventure, ItineraryStop } from '../types/adventure';
 
+const GUEST_ID = '00000000-0000-0000-0000-000000000000';
+
 interface AdventureContextType {
   currentAdventure: Adventure | null;
   loading: boolean;
@@ -24,14 +26,12 @@ export const AdventureProvider: React.FC<{ children: ReactNode }> = ({ children 
 
       const { data: { session }, error: authError } = await supabase.auth.getSession();
 
-      if (authError || !session) {
-        setCurrentAdventure(null);
-        return;
-      }
+      const userId = authError || !session ? GUEST_ID : session.user.id;
 
       const { data, error: fetchError } = await supabase
         .from('adventures')
         .select('*')
+        .eq('user_id', userId)
         .in('status', ['assigned', 'active', 'draft'])
         .order('created_at', { ascending: false })
         .limit(1)

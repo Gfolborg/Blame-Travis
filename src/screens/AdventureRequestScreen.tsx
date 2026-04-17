@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,37 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Dimensions,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
+import * as Location from 'expo-location';
+
 import { RootStackParamList } from '../types/navigation';
 import { theme } from '../theme';
 import { TravisSignal } from '../components/TravisSignal';
 import { discoveryService } from '../services/discovery';
 import { supabase } from '../services/supabase';
+
+// SAFE MAP LOADING
+let MapView: any = null;
+let Marker: any = null;
+let Circle: any = null;
+let mapLoadError = false;
+
+try {
+  const Maps = require('react-native-maps');
+  MapView = Maps.default;
+  Marker = Maps.Marker;
+  Circle = Maps.Circle;
+  if (!MapView) mapLoadError = true;
+} catch (e) {
+  mapLoadError = true;
+}
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'AdventureRequest'>;
 
@@ -26,14 +47,6 @@ const DURATIONS = [
   { id: '1_day', label: '1 DAY', icon: '🏙️' },
   { id: 'weekend', label: 'WEEKEND', icon: '⛺' },
   { id: 'vacation', label: '1+ WEEKS', icon: '✈️' },
-];
-
-const LOCATIONS = [
-  { id: 'current', label: 'CURRENT', icon: '📍' },
-  { id: 'specific', label: 'SPECIFIC CITY', icon: '🔍' },
-  { id: 'brave', label: 'BRAVE MODE', icon: '🏹' },
-  { id: 'worldwide', label: 'WORLDWIDE', icon: '🌍' },
-  { id: 'surprise', label: 'SURPRISE ME', icon: '🎲' },
 ];
 
 const VIBES = [
@@ -55,18 +68,57 @@ const BUDGETS = [
   { id: 'travis', label: '!!!', desc: 'TRAVIS STYLE' },
 ];
 
+const GLOBAL_HUBS = [
+  { name: 'Tokyo', lat: 35.6762, lng: 139.6503 },
+  { name: 'Paris', lat: 48.8566, lng: 2.3522 },
+  { name: 'New York', lat: 40.7128, lng: -74.0060 },
+  { name: 'London', lat: 51.5074, lng: -0.1278 },
+  { name: 'Bangkok', lat: 13.7563, lng: 100.5018 },
+  { name: 'Rome', lat: 41.9028, lng: 12.4964 },
+  { name: 'Dubai', lat: 25.2048, lng: 55.2708 },
+  { name: 'Singapore', lat: 1.3521, lng: 103.8198 },
+];
+
 const AdventureRequestScreen = () => {
   const navigation = useNavigation<NavigationProp>();
+  const mapRef = useRef<any>(null);
+
+  const [region, setRegion] = useState({
+    latitude: 37.78825,
+    longitude: -122.4324,
+    latitudeDelta: 0.0922,
+    longitudeDelta: 0.0421,
+  });
+  const [radius, setRadius] = useState(5000); // 5km default
   const [duration, setDuration] = useState('1_day');
-  const [locationMode, setLocationMode] = useState('current');
-  const [city, setCity] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [selectedVibes, setSelectedVibes] = useState<string[]>(['food']);
   const [budget, setBudget] = useState('mid');
   const [isCalculating, setIsCalculating] = useState(false);
+  const [isMapReady, setIsMapReady] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const location = await Location.getCurrentPositionAsync({});
+        const newRegion = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: 0.0922,
+          longitudeDelta: 0.0421,
+        };
+        setRegion(newRegion);
+        if (!mapLoadError) {
+          mapRef.current?.animateToRegion(newRegion, 1000);
+        }
+      }
+    })();
+  }, []);
 
   const fetchSuggestions = async (input: string) => {
-    setCity(input);
+    setSearchQuery(input);
     if (input.length < 3) {
       setSuggestions([]);
       return;
@@ -84,10 +136,44 @@ const AdventureRequestScreen = () => {
     }
   };
 
-  const selectSuggestion = (suggestion: any) => {
+  const selectSuggestion = async (suggestion: any) => {
     const text = suggestion.placePrediction?.text?.text || '';
-    setCity(text);
+    setSearchQuery(text);
     setSuggestions([]);
+
+    try {
+      const { data } = await supabase.functions.invoke('discover-places', {
+        body: { action: 'geocode', payload: { query: text } }
+      });
+      if (data?.places?.[0]?.location) {
+        const newRegion = {
+          latitude: data.places[0].location.latitude,
+          longitude: data.places[0].location.longitude,
+          latitudeDelta: 0.0922,
+          longitudeDelta: 0.0421,
+        };
+        setRegion(newRegion);
+        if (!mapLoadError) {
+          mapRef.current?.animateToRegion(newRegion, 1000);
+        }
+      }
+    } catch (e) {
+      console.error('Geocoding failed:', e);
+    }
+  };
+
+  const handleSurpriseMe = () => {
+    const hub = GLOBAL_HUBS[Math.floor(Math.random() * GLOBAL_HUBS.length)];
+    const newRegion = {
+      latitude: hub.lat,
+      longitude: hub.lng,
+      latitudeDelta: 0.0922,
+      longitudeDelta: 0.0421,
+    };
+    setRegion(newRegion);
+    if (!mapLoadError) {
+      mapRef.current?.animateToRegion(newRegion, 1500);
+    }
   };
 
   const toggleVibe = (id: string) => {
@@ -103,17 +189,20 @@ const AdventureRequestScreen = () => {
   const handleCalculate = async () => {
     try {
       setIsCalculating(true);
-      const location = locationMode === 'specific' ? city : locationMode;
       
       const adventure = await discoveryService.generateAdventure({
-        location,
+        coords: { lat: region.latitude, lng: region.longitude },
+        radius: radius,
         duration,
         vibe: selectedVibes.join(','),
         budget,
         date: new Date(),
       });
 
-      navigation.navigate('AdventureAssignment', { AdventureId: adventure.id });
+      navigation.navigate('AdventureAssignment', { 
+        AdventureId: adventure.id,
+        initialAdventure: adventure
+      });
     } catch (error) {
       console.error('Failed to generate adventure:', error);
     } finally {
@@ -125,29 +214,111 @@ const AdventureRequestScreen = () => {
     return (
       <View style={[styles.container, styles.calculatingContainer]}>
         <TravisSignal status="thinking" size={120} />
-        <Text style={styles.calculatingTitle}>TRAVIS IS PUTTING THIS TOGETHER...</Text>
-        <Text style={styles.calculatingSubtitle}>Give him a second. He's finding something better than your usual routine.</Text>
+        <Text style={styles.calculatingTitle}>TRAVIS IS SCOUTING...</Text>
+        <Text style={styles.calculatingSubtitle}>Finding the perfect spots within your chosen circle.</Text>
         <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 40 }} />
       </View>
     );
   }
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
+    <View style={styles.container}>
       <SafeAreaView style={{ flex: 1 }}>
         <SafeAreaHeader navigation={navigation} />
 
-        <ScrollView 
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={styles.title}>Draft Your Journey</Text>
+        <View style={styles.mapContainer}>
+          {mapLoadError ? (
+            <View style={styles.mapFallback}>
+              <Image 
+                source={require('../../assets/textures/vintage-satellite-map.png')} 
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+              />
+              <View style={styles.fallbackOverlay}>
+                <TravisSignal status="thinking" size={60} />
+                <Text style={styles.fallbackText}>TRAVIS: "SCOUTING EQUIPMENT NOT CALIBRATED."</Text>
+                <Text style={styles.fallbackSubtext}>(REBUILD THE APP TO VIEW THE LIVE MAP)</Text>
+              </View>
+            </View>
+          ) : (
+            <MapView
+              ref={mapRef}
+              style={styles.map}
+              initialRegion={region}
+              onRegionChangeComplete={(newRegion: any) => setRegion(newRegion)}
+              onMapReady={() => setIsMapReady(true)}
+            >
+              {isMapReady && (
+                <Circle
+                  center={{ latitude: region.latitude, longitude: region.longitude }}
+                  radius={radius}
+                  strokeColor={theme.colors.primary}
+                  fillColor={`${theme.colors.primary}22`}
+                  strokeWidth={2}
+                />
+              )}
+            </MapView>
+          )}
+          
+          {/* Fixed Center Marker Overlay - Still show it as it's the "Center" of the area */}
+          <View style={styles.markerOverlay} pointerEvents="none">
+            <Ionicons name="location" size={40} color={theme.colors.primary} />
+          </View>
 
-          {/* Step 1: Duration */}
-          <Text style={styles.sectionTitle}>How long are we out for?</Text>
+          {/* Search Overlay */}
+          <View style={styles.searchOverlay}>
+            <View style={styles.searchInputContainer}>
+              <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={{ marginLeft: 12 }} />
+              <TextInput
+                style={styles.mapSearchInput}
+                placeholder="Search City..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={searchQuery}
+                onChangeText={fetchSuggestions}
+              />
+              <TouchableOpacity onPress={handleSurpriseMe} style={styles.surpriseButton}>
+                <Ionicons name="dice" size={24} color={theme.colors.primary} />
+              </TouchableOpacity>
+            </View>
+
+            {suggestions.length > 0 && (
+              <View style={styles.suggestionsList}>
+                {suggestions.map((s, i) => (
+                  <TouchableOpacity 
+                    key={i} 
+                    style={styles.suggestionItem}
+                    onPress={() => selectSuggestion(s)}
+                  >
+                    <Text style={styles.suggestionText}>{s.placePrediction?.text?.text}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          {/* Radius Slider */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>SEARCH RADIUS</Text>
+              <Text style={styles.radiusValue}>{(radius / 1000).toFixed(1)} km</Text>
+            </View>
+            <Slider
+              style={styles.slider}
+              minimumValue={1000}
+              maximumValue={50000}
+              step={500}
+              value={radius}
+              onValueChange={setRadius}
+              minimumTrackTintColor={theme.colors.primary}
+              maximumTrackTintColor={theme.colors.border}
+              thumbTintColor={theme.colors.primary}
+            />
+          </View>
+
+          {/* Duration */}
+          <Text style={styles.sectionTitle}>HOW LONG ARE WE OUT FOR?</Text>
           <View style={styles.optionsGrid}>
             {DURATIONS.map((opt) => (
               <OptionCard 
@@ -159,52 +330,8 @@ const AdventureRequestScreen = () => {
             ))}
           </View>
 
-          {/* Step 2: Location */}
-          <Text style={styles.sectionTitle}>Where are we headed?</Text>
-          <View style={styles.optionsGrid}>
-            {LOCATIONS.map((opt) => (
-              <OptionCard 
-                key={opt.id}
-                item={opt}
-                isSelected={locationMode === opt.id}
-                onPress={() => setLocationMode(opt.id)}
-              />
-            ))}
-          </View>
-
-
-          {locationMode === 'specific' && (
-            <View>
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Search City (e.g., Manila, Philippines)"
-                  placeholderTextColor={theme.colors.textSecondary}
-                  value={city}
-                  onChangeText={fetchSuggestions}
-                  autoFocus
-                />
-              </View>
-              
-              {suggestions.length > 0 && (
-                <View style={styles.suggestionsList}>
-                  {suggestions.map((s, i) => (
-                    <TouchableOpacity 
-                      key={i} 
-                      style={styles.suggestionItem}
-                      onPress={() => selectSuggestion(s)}
-                    >
-                      <Ionicons name="location-sharp" size={16} color={theme.colors.primary} />
-                      <Text style={styles.suggestionText}>{s.placePrediction?.text?.text}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
-          )}
-
-          {/* Step 3: Budget Slider */}
-          <Text style={styles.sectionTitle}>What's the damage? (Budget)</Text>
+          {/* Budget */}
+          <Text style={styles.sectionTitle}>WHAT'S THE DAMAGE? (BUDGET)</Text>
           <View style={styles.budgetContainer}>
             {BUDGETS.map((opt) => (
               <TouchableOpacity
@@ -227,8 +354,8 @@ const AdventureRequestScreen = () => {
             ))}
           </View>
 
-          {/* Step 4: Vibes */}
-          <Text style={styles.sectionTitle}>What's the vibe? (Pick multiple)</Text>
+          {/* Vibes */}
+          <Text style={styles.sectionTitle}>WHAT'S THE VIBE?</Text>
           <View style={styles.grid}>
             {VIBES.map((opt) => (
               <OptionCard 
@@ -252,7 +379,7 @@ const AdventureRequestScreen = () => {
           </TouchableOpacity>
         </View>
       </SafeAreaView>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
@@ -326,35 +453,144 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginRight: 12,
   },
-  content: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.md,
+  mapContainer: {
+    height: Dimensions.get('window').height * 0.4,
+    width: '100%',
+    position: 'relative',
+    overflow: 'hidden',
   },
-  title: {
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  mapFallback: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#E0D8C8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fallbackOverlay: {
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    padding: 24,
+    borderRadius: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  fallbackText: {
     color: theme.colors.textPrimary,
-    fontSize: 32,
+    fontSize: 12,
     fontWeight: '900',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  fallbackSubtext: {
+    color: theme.colors.textSecondary,
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  markerOverlay: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginLeft: -20,
+    marginTop: -40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchOverlay: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    zIndex: 10,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 12,
+    height: 50,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  mapSearchInput: {
+    flex: 1,
+    height: '100%',
+    paddingHorizontal: 12,
+    fontSize: 16,
+    color: theme.colors.textPrimary,
+  },
+  surpriseButton: {
+    padding: 12,
+    borderLeftWidth: 1,
+    borderLeftColor: theme.colors.border,
+  },
+  suggestionsList: {
+    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    maxHeight: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  suggestionItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  suggestionText: {
+    fontSize: 14,
+    color: theme.colors.textPrimary,
+  },
+  scrollContent: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.xl,
+  },
+  section: {
+    marginBottom: theme.spacing.xl,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: theme.spacing.md,
   },
   sectionTitle: {
     color: theme.colors.textPrimary,
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: theme.spacing.xl,
-    marginBottom: theme.spacing.md,
-    letterSpacing: 0.5,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  radiusValue: {
+    color: theme.colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  slider: {
+    width: '100%',
+    height: 40,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: theme.spacing.md,
+    marginTop: theme.spacing.md,
   },
   optionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: theme.spacing.md,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.xl,
   },
-
   card: {
     width: '30%',
     aspectRatio: 1,
@@ -365,10 +601,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
     elevation: 2,
   },
   cardSelected: {
@@ -384,44 +616,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
     textAlign: 'center',
-    letterSpacing: 0.5,
   },
   cardLabelSelected: {
     color: theme.colors.primary,
-  },
-  inputContainer: {
-    marginTop: theme.spacing.md,
-    backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  input: {
-    color: theme.colors.textPrimary,
-    height: 50,
-    fontSize: 16,
-  },
-  suggestionsList: {
-    marginTop: 8,
-    backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    elevation: 2,
-  },
-  suggestionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  suggestionText: {
-    color: theme.colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 12,
   },
   budgetContainer: {
     flexDirection: 'row',
@@ -429,8 +626,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderRadius: 16,
     padding: 4,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.xl,
   },
   budgetOption: {
     flex: 1,
@@ -460,12 +657,7 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     padding: theme.spacing.lg,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
     backgroundColor: theme.colors.background,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
@@ -477,10 +669,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
   },
   buttonText: {
     color: '#FFFFFF',

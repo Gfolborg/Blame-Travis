@@ -16,6 +16,7 @@ export interface ItineraryStop {
   lng: number;
   estimated_dwell_minutes?: number;
   estimated_spend?: number;
+  why_travis_picked_this?: string;
 }
 
 /**
@@ -33,6 +34,7 @@ export interface Adventure {
   estimated_budget?: number;
   estimated_duration_minutes?: number;
   why_travis_picked_this?: string;
+  hero_image_url?: string | null;
   itinerary_json: ItineraryStop[];
   main_goal: string;
   bonus_goal?: string;

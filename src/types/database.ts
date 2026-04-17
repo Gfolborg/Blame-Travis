@@ -11,13 +11,16 @@ export type Database = {
     Tables: {
       adventures: {
         Row: {
+          bonus_goal: string | null;
           drop_date: string;
           created_at: string;
           deadline: string;
           estimated_budget: number | null;
           estimated_duration_minutes: number | null;
+          hero_image_url: string | null;
           id: string;
           itinerary_json: Json | null;
+          main_goal: string | null;
           adventure_type: string | null;
           budget_level: string | null;
           status: string;
@@ -27,13 +30,16 @@ export type Database = {
           why_travis_picked_this: string | null;
         };
         Insert: {
+          bonus_goal?: string | null;
           drop_date: string;
           created_at?: string;
           deadline: string;
           estimated_budget?: number | null;
           estimated_duration_minutes?: number | null;
+          hero_image_url?: string | null;
           id?: string;
           itinerary_json?: Json | null;
+          main_goal?: string | null;
           adventure_type?: string | null;
           budget_level?: string | null;
           status?: string;
@@ -43,13 +49,16 @@ export type Database = {
           why_travis_picked_this?: string | null;
         };
         Update: {
+          bonus_goal?: string | null;
           drop_date?: string;
           created_at?: string;
           deadline?: string;
           estimated_budget?: number | null;
           estimated_duration_minutes?: number | null;
+          hero_image_url?: string | null;
           id?: string;
           itinerary_json?: Json | null;
+          main_goal?: string | null;
           adventure_type?: string | null;
           budget_level?: string | null;
           status?: string;
@@ -79,6 +88,7 @@ export type Database = {
           is_premium: boolean;
           rerolls_today: number;
           last_reroll_date: string | null;
+          notifications_enabled: boolean;
           spontaneity_level: string;
           time_default: number | null;
           transport_mode: string;
@@ -95,6 +105,7 @@ export type Database = {
           is_premium?: boolean;
           rerolls_today?: number;
           last_reroll_date?: string | null;
+          notifications_enabled?: boolean;
           spontaneity_level?: string;
           time_default?: number | null;
           transport_mode?: string;
@@ -111,6 +122,7 @@ export type Database = {
           is_premium?: boolean;
           rerolls_today?: number;
           last_reroll_date?: string | null;
+          notifications_enabled?: boolean;
           spontaneity_level?: string;
           time_default?: number | null;
           transport_mode?: string;
@@ -118,6 +130,125 @@ export type Database = {
           updated_at?: string;
         };
         Relationships: [];
+      };
+      notification_deliveries: {
+        Row: {
+          adventure_id: string | null;
+          body: string;
+          channel: string;
+          created_at: string;
+          dedupe_key: string;
+          failure_reason: string | null;
+          id: string;
+          opened_at: string | null;
+          profile_id: string;
+          scheduled_for: string;
+          sent_at: string | null;
+          status: string;
+          title: string;
+          type: string;
+          updated_at: string;
+        };
+        Insert: {
+          adventure_id?: string | null;
+          body: string;
+          channel: string;
+          created_at?: string;
+          dedupe_key: string;
+          failure_reason?: string | null;
+          id?: string;
+          opened_at?: string | null;
+          profile_id: string;
+          scheduled_for: string;
+          sent_at?: string | null;
+          status?: string;
+          title: string;
+          type: string;
+          updated_at?: string;
+        };
+        Update: {
+          adventure_id?: string | null;
+          body?: string;
+          channel?: string;
+          created_at?: string;
+          dedupe_key?: string;
+          failure_reason?: string | null;
+          id?: string;
+          opened_at?: string | null;
+          profile_id?: string;
+          scheduled_for?: string;
+          sent_at?: string | null;
+          status?: string;
+          title?: string;
+          type?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'notification_deliveries_adventure_id_fkey';
+            columns: ['adventure_id'];
+            isOneToOne: false;
+            referencedRelation: 'adventures';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'notification_deliveries_profile_id_fkey';
+            columns: ['profile_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      notification_devices: {
+        Row: {
+          app_version: string | null;
+          created_at: string;
+          disabled_at: string | null;
+          expo_push_token: string | null;
+          id: string;
+          install_id: string;
+          last_seen_at: string | null;
+          permission_status: string;
+          platform: string;
+          profile_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          app_version?: string | null;
+          created_at?: string;
+          disabled_at?: string | null;
+          expo_push_token?: string | null;
+          id?: string;
+          install_id: string;
+          last_seen_at?: string | null;
+          permission_status?: string;
+          platform: string;
+          profile_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          app_version?: string | null;
+          created_at?: string;
+          disabled_at?: string | null;
+          expo_push_token?: string | null;
+          id?: string;
+          install_id?: string;
+          last_seen_at?: string | null;
+          permission_status?: string;
+          platform?: string;
+          profile_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'notification_devices_profile_id_fkey';
+            columns: ['profile_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
       };
     };
     Views: {

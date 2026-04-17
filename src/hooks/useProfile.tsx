@@ -54,6 +54,7 @@ export const ProfileProvider: React.FC<{ children: ReactNode }> = ({ children })
           travis_tone: 'bold',
           budget_default: 2,
           is_premium: true,
+          notifications_enabled: true,
         };
 
         const { data: newProfile, error: insertError } = await supabase

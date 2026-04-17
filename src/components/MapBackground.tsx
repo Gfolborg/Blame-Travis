@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
 import Animated, { 
   useSharedValue, 
+  type SharedValue,
   useAnimatedStyle, 
   withRepeat, 
   withTiming, 
@@ -16,7 +17,7 @@ import { theme } from '../theme';
 const { width, height } = Dimensions.get('window');
 
 interface MapBackgroundProps {
-  scrollOffset?: Animated.SharedValue<number>;
+  scrollOffset?: SharedValue<number>;
 }
 
 export const MapBackground: React.FC<MapBackgroundProps> = ({ scrollOffset }) => {
