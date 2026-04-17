@@ -68,17 +68,6 @@ const BUDGETS = [
   { id: 'travis', label: '!!!', desc: 'TRAVIS STYLE' },
 ];
 
-const GLOBAL_HUBS = [
-  { name: 'Tokyo', lat: 35.6762, lng: 139.6503 },
-  { name: 'Paris', lat: 48.8566, lng: 2.3522 },
-  { name: 'New York', lat: 40.7128, lng: -74.0060 },
-  { name: 'London', lat: 51.5074, lng: -0.1278 },
-  { name: 'Bangkok', lat: 13.7563, lng: 100.5018 },
-  { name: 'Rome', lat: 41.9028, lng: 12.4964 },
-  { name: 'Dubai', lat: 25.2048, lng: 55.2708 },
-  { name: 'Singapore', lat: 1.3521, lng: 103.8198 },
-];
-
 const AdventureRequestScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const mapRef = useRef<any>(null);
@@ -97,6 +86,7 @@ const AdventureRequestScreen = () => {
   const [budget, setBudget] = useState('mid');
   const [isCalculating, setIsCalculating] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
+  const [isSurprising, setIsSurpriseLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -162,17 +152,24 @@ const AdventureRequestScreen = () => {
     }
   };
 
-  const handleSurpriseMe = () => {
-    const hub = GLOBAL_HUBS[Math.floor(Math.random() * GLOBAL_HUBS.length)];
-    const newRegion = {
-      latitude: hub.lat,
-      longitude: hub.lng,
-      latitudeDelta: 0.0922,
-      longitudeDelta: 0.0421,
-    };
-    setRegion(newRegion);
-    if (!mapLoadError) {
-      mapRef.current?.animateToRegion(newRegion, 1500);
+  const handleSurpriseMe = async () => {
+    try {
+      setIsSurpriseLoading(true);
+      const hub = await discoveryService.fetchRandomHub();
+      const newRegion = {
+        latitude: hub.lat,
+        longitude: hub.lng,
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      };
+      setRegion(newRegion);
+      if (!mapLoadError) {
+        mapRef.current?.animateToRegion(newRegion, 1500);
+      }
+    } catch (e) {
+      console.error('Surprise Me failed:', e);
+    } finally {
+      setIsSurpriseLoading(false);
     }
   };
 
@@ -276,8 +273,16 @@ const AdventureRequestScreen = () => {
                 value={searchQuery}
                 onChangeText={fetchSuggestions}
               />
-              <TouchableOpacity onPress={handleSurpriseMe} style={styles.surpriseButton}>
-                <Ionicons name="dice" size={24} color={theme.colors.primary} />
+              <TouchableOpacity 
+                onPress={handleSurpriseMe} 
+                style={styles.surpriseButton}
+                disabled={isSurprising}
+              >
+                {isSurprising ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                  <Ionicons name="dice" size={24} color={theme.colors.primary} />
+                )}
               </TouchableOpacity>
             </View>
 
@@ -529,6 +534,8 @@ const styles = StyleSheet.create({
     padding: 12,
     borderLeftWidth: 1,
     borderLeftColor: theme.colors.border,
+    minWidth: 48,
+    alignItems: 'center',
   },
   suggestionsList: {
     marginTop: 8,

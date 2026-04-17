@@ -34,6 +34,39 @@ const BUDGET_TO_PRICE: Record<string, string[]> = {
 };
 
 export const discoveryService = {
+  async fetchRandomHub(): Promise<{ name: string; lat: number; lng: number }> {
+    try {
+      // ORDER BY random() is very efficient for small/medium tables like 2,000 rows
+      const { data, error } = await supabase
+        .from('global_hubs')
+        .select('name, latitude, longitude')
+        .limit(1);
+      
+      // Note: order('random()') is not supported directly in JS client as a helper, 
+      // but we can use an RPC or just raw SQL if needed. 
+      // For now, let's use a smarter "random offset" method that works everywhere.
+      const { count } = await supabase.from('global_hubs').select('*', { count: 'exact', head: true });
+      const randomIndex = Math.floor(Math.random() * (count || 1));
+      
+      const { data: randomHub, error: fetchError } = await supabase
+        .from('global_hubs')
+        .select('name, latitude, longitude')
+        .range(randomIndex, randomIndex)
+        .single();
+
+      if (fetchError || !randomHub) throw fetchError || new Error('No hubs found');
+
+      return {
+        name: randomHub.name,
+        lat: randomHub.latitude,
+        lng: randomHub.longitude
+      };
+    } catch (e) {
+      console.error('Failed to fetch random hub from Supabase, using fallback Tokyo.', e);
+      return { name: 'Tokyo', lat: 35.6762, lng: 139.6503 };
+    }
+  },
+
   async generateAdventure(params: DiscoveryParams): Promise<Adventure> {
     const { data: { user } } = await supabase.auth.getUser();
     const userId = user?.id || '00000000-0000-0000-0000-000000000000';
@@ -135,12 +168,7 @@ export const discoveryService = {
     }
 
     if (location === 'surprise' || location === 'worldwide') {
-      const globalHubs = [
-        { name: 'Tokyo', lat: 35.6762, lng: 139.6503 },
-        { name: 'Paris', lat: 48.8566, lng: 2.3522 },
-        { name: 'New York', lat: 40.7128, lng: -74.0060 },
-      ];
-      const city = globalHubs[Math.floor(Math.random() * globalHubs.length)];
+      const city = await this.fetchRandomHub();
       return { lat: city.lat, lng: city.lng };
     }
 
