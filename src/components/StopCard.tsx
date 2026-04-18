@@ -10,7 +10,7 @@ interface StopCardProps {
   renderRightAction?: () => React.ReactNode;
 }
 
-export const StopCard: React.FC<StopCardProps> = ({ stop, onPress, renderRightAction }) => {
+const StopCardComponent: React.FC<StopCardProps> = ({ stop, onPress, renderRightAction }) => {
   return (
     <TouchableOpacity 
       style={styles.stopCard} 
@@ -27,7 +27,7 @@ export const StopCard: React.FC<StopCardProps> = ({ stop, onPress, renderRightAc
           {renderRightAction && renderRightAction()}
         </View>
         <View style={styles.categoryBadge}>
-          <Text style={styles.categoryText}>{stop.category.toUpperCase()}</Text>
+          <Text style={styles.categoryText}>{(stop.category || 'SPOT').toUpperCase()}</Text>
         </View>
         {stop.why_travis_picked_this && (
           <Text style={styles.insightText} numberOfLines={2}>
@@ -38,6 +38,8 @@ export const StopCard: React.FC<StopCardProps> = ({ stop, onPress, renderRightAc
     </TouchableOpacity>
   );
 };
+
+export const StopCard = React.memo(StopCardComponent);
 
 const styles = StyleSheet.create({
   stopCard: { 

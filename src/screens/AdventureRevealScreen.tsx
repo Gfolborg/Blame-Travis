@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -10,16 +10,19 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { Calendar } from 'react-native-calendars';
+
 import { RootStackParamList } from '../types/navigation';
 import { theme } from '../theme';
 import { TravisSignal } from '../components/TravisSignal';
 import { supabase } from '../services/supabase';
-import { Adventure, ItineraryStop } from '../types/adventure';
+import { Adventure } from '../types/adventure';
 import { useAdventure } from '../hooks/useAdventure';
-import { useProfile } from '../hooks/useProfile';
 import { useNotice } from '../components/TravisNotice';
 import { StopCard } from '../components/StopCard';
 import { InkBleedItem } from '../components/InkBleedItem';
+import { DayShellCard } from '../components/DayShellCard';
+import { fetchAdventureById, getCurrentTripDay } from '../services/adventureData';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AdventureReveal'>;
 
@@ -29,62 +32,44 @@ const AdventureRevealScreen: React.FC<Props> = ({ navigation, route }) => {
   const [loading, setLoading] = useState(true);
   const [committing, setCommitting] = useState(false);
   const { refreshAdventure } = useAdventure();
-  const { profile } = useProfile();
   const { showNotice } = useNotice();
 
-  // Date Selector Logic
-  const getNext7Days = () => {
-    const days = [];
-    for (let i = 1; i <= 7; i++) {
-      const date = new Date();
-      date.setDate(date.getDate() + i);
-      days.push(date);
-    }
-    return days;
-  };
+  // Calendar Logic
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
-  const [dates] = useState(getNext7Days());
-  const [selectedDate, setSelectedDate] = useState<Date>(dates[0]);
-
-  useEffect(() => {
-    fetchAdventure();
-  }, [AdventureId]);
-
-  const fetchAdventure = async () => {
-
+  const fetchAdventure = useCallback(async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('adventures')
-        .select('*')
-        .eq('id', AdventureId)
-        .single();
-
-      if (error) throw error;
-      setAdventure(data as unknown as Adventure);
+      const nextAdventure = await fetchAdventureById(AdventureId);
+      setAdventure(nextAdventure);
     } catch (error) {
       console.error('Error fetching adventure reveal:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [AdventureId]);
+
+  useEffect(() => {
+    fetchAdventure();
+  }, [fetchAdventure]);
 
   const handleAccept = async () => {
-    if (!adventure || !profile) return;
+    if (!adventure) return;
     
     try {
       setCommitting(true);
-      const deadline = new Date(selectedDate);
-      const durationDays = adventure.adventure_type.includes('weekend') ? 3 : 
-                          adventure.adventure_type.includes('vacation') ? 7 : 1;
-      deadline.setDate(deadline.getDate() + durationDays);
+      
+      const maxDay = adventure.days?.length || 1;
+      const startDate = new Date(selectedDate);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + (maxDay - 1));
 
       const { error } = await supabase
         .from('adventures')
         .update({ 
           status: 'active',
-          deadline: deadline.toISOString(),
-          drop_date: selectedDate.toISOString() 
+          drop_date: startDate.toISOString(),
+          deadline: endDate.toISOString() 
         } as any)
         .eq('id', adventure.id);
 
@@ -128,14 +113,6 @@ const AdventureRevealScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
-  const formatDate = (date: Date) => {
-    const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    return {
-      dayName: days[date.getDay()],
-      dayNum: date.getDate()
-    };
-  };
-
   if (loading || committing) {
     return (
       <View style={styles.container}>
@@ -152,15 +129,11 @@ const AdventureRevealScreen: React.FC<Props> = ({ navigation, route }) => {
 
   if (!adventure) return null;
 
-  // Group stops by Day
-  const groupedStops: Record<number, ItineraryStop[]> = {};
-  adventure.itinerary_json.forEach(stop => {
-    const day = stop.day || 1;
-    if (!groupedStops[day]) groupedStops[day] = [];
-    groupedStops[day].push(stop);
-  });
-
   const isDayTrip = adventure.adventure_type.includes('1_day');
+  const isDraftMode = adventure.status === 'draft';
+  const isActiveMode = adventure.status === 'active';
+  const fullWindowStartDay = isActiveMode ? getCurrentTripDay(adventure) : 1;
+  const fullWindowDays = new Set([fullWindowStartDay, fullWindowStartDay + 1, fullWindowStartDay + 2]);
 
   return (
     <View style={styles.container}>
@@ -194,11 +167,12 @@ const AdventureRevealScreen: React.FC<Props> = ({ navigation, route }) => {
 
         {/* JOURNEY DETAILS SECTION (Itinerary) */}
         <View style={styles.itineraryContainer}>
-          <Text style={styles.sectionHeader}>THE ITINERARY</Text>
+          <Text style={styles.sectionHeader}>{isDraftMode ? 'THE ITINERARY' : 'FULL ROUTE'}</Text>
           
-          {Object.keys(groupedStops).sort((a, b) => Number(a) - Number(b)).map((dayKey) => {
-            const day = Number(dayKey);
-            const stops = groupedStops[day];
+          {(adventure.days || []).sort((a, b) => a.day_number - b.day_number).map((dayData) => {
+            const day = dayData.day_number;
+            const stops = dayData.itinerary_json;
+            const inRollingWindow = fullWindowDays.has(day);
             
             return (
               <View key={day} style={styles.dayGroup}>
@@ -210,57 +184,99 @@ const AdventureRevealScreen: React.FC<Props> = ({ navigation, route }) => {
                   <View style={styles.dayLine} />
                 </View>
                 
-                {stops.map((stop, idx) => {
-                  // Fake time for day trips
-                  const time = isDayTrip ? `${9 + idx * 2}:00` : null;
-                  
-                  return (
-                    <View key={stop.place_id} style={styles.stopRow}>
-                      {time && (
-                        <View style={styles.timeContainer}>
-                          <Text style={styles.timeText}>{time}</Text>
+                {dayData.status === 'ready' && inRollingWindow ? (
+                  <>
+                    {stops.map((stop, idx) => {
+                      const time = isDayTrip ? `${9 + idx * 2}:00` : null;
+
+                      return (
+                        <View key={`${stop.place_id}_${idx}`} style={styles.stopRow}>
+                          {time && (
+                            <View style={styles.timeContainer}>
+                              <Text style={styles.timeText}>{time}</Text>
+                            </View>
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <InkBleedItem
+                              animationKey={`reveal-stop-${dayData.day_number}-${stop.place_id}`}
+                              delay={idx * 150}
+                            >
+                              <StopCard stop={stop} />
+                            </InkBleedItem>
+                          </View>
                         </View>
-                      )}
-                      <View style={{ flex: 1 }}>
-                        <InkBleedItem delay={idx * 150}>
-                          <StopCard stop={stop} />
-                        </InkBleedItem>
+                      );
+                    })}
+
+                    {dayData.alternates_json.length > 0 && (
+                      <View style={styles.alternateBlock}>
+                        <Text style={styles.alternateLabel}>BACKUP PICKS</Text>
+                        <View style={styles.alternateRow}>
+                          {dayData.alternates_json.slice(0, 3).map(alternate => (
+                            <View key={alternate.place_id} style={styles.alternateChip}>
+                              <Text style={styles.alternateChipText} numberOfLines={1}>
+                                {alternate.name}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
                       </View>
-                    </View>
-                  );
-                })}
+                    )}
+                  </>
+                ) : (
+                  <InkBleedItem animationKey={`reveal-shell-${dayData.day_number}`} delay={dayData.day_number * 80}>
+                    <DayShellCard day={dayData} />
+                  </InkBleedItem>
+                )}
               </View>
             );
           })}
 
-          <Text style={styles.sectionHeader}>COMMIT TO THE ROAD</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.datePicker}>
-            {dates.map((date, idx) => {
-              const { dayName, dayNum } = formatDate(date);
-              const isSelected = selectedDate.toDateString() === date.toDateString();
-              return (
-                <TouchableOpacity 
-                  key={idx}
-                  style={[styles.dateCard, isSelected && styles.dateCardSelected]}
-                  onPress={() => setSelectedDate(date)}
-                >
-                  <Text style={[styles.dayName, isSelected && styles.dateTextSelected]}>{dayName}</Text>
-                  <Text style={[styles.dayNum, isSelected && styles.dateTextSelected]}>{dayNum}</Text>
+          {isDraftMode ? (
+            <>
+              <Text style={styles.sectionHeader}>READY TO ROLL? PICK YOUR START DATE.</Text>
+              <View style={styles.calendarWrapper}>
+                <Calendar
+                  current={selectedDate}
+                  onDayPress={(day) => setSelectedDate(day.dateString)}
+                  markedDates={{
+                    [selectedDate]: { selected: true, disableTouchEvent: true, selectedColor: theme.colors.primary }
+                  }}
+                  theme={{
+                    calendarBackground: 'transparent',
+                    textSectionTitleColor: theme.colors.textSecondary,
+                    selectedDayBackgroundColor: theme.colors.primary,
+                    selectedDayTextColor: '#ffffff',
+                    todayTextColor: theme.colors.primary,
+                    dayTextColor: theme.colors.textPrimary,
+                    monthTextColor: theme.colors.textPrimary,
+                    textDayFontWeight: '600',
+                    textMonthFontWeight: '900',
+                    textDayHeaderFontWeight: '900',
+                  }}
+                />
+              </View>
+
+              <View style={styles.actionContainer}>
+                <TouchableOpacity style={styles.acceptButton} onPress={handleAccept}>
+                  <Text style={styles.acceptButtonText}>COMMIT & STAMP</Text>
+                  <Ionicons name="checkmark-circle" size={24} color="#FFFFFF" style={{ marginLeft: 12 }} />
                 </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
 
-          <View style={styles.actionContainer}>
-            <TouchableOpacity style={styles.acceptButton} onPress={handleAccept}>
-              <Text style={styles.acceptButtonText}>STAMP THIS DAY</Text>
-              <Ionicons name="arrow-forward" size={20} color="#FFFFFF" style={{ marginLeft: 12 }} />
-            </TouchableOpacity>
+                <TouchableOpacity style={styles.rerollButton} onPress={handleReroll}>
+                  <Text style={styles.rerollButtonText}>RE-DRAFT PLAN</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
 
-            <TouchableOpacity style={styles.rerollButton} onPress={handleReroll}>
-              <Text style={styles.rerollButtonText}>RE-DRAFT PLAN</Text>
-            </TouchableOpacity>
-          </View>
+          {isActiveMode ? (
+            <View style={styles.readOnlyFooter}>
+              <Text style={styles.readOnlyFooterText}>
+                Travis already stamped this trip. The Desk will handle what matters today.
+              </Text>
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -300,19 +316,43 @@ const styles = StyleSheet.create({
   stopRow: { flexDirection: 'row', gap: 12 },
   timeContainer: { width: 50, paddingTop: 15 },
   timeText: { fontSize: 12, fontWeight: 'bold', color: theme.colors.primary },
+  alternateBlock: { marginTop: 8, marginLeft: 4 },
+  alternateLabel: { fontSize: 10, fontWeight: '900', color: theme.colors.textSecondary, letterSpacing: 1.5, marginBottom: 10 },
+  alternateRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  alternateChip: { backgroundColor: theme.colors.surface, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: theme.colors.border },
+  alternateChipText: { color: theme.colors.textPrimary, fontSize: 12, fontWeight: '700', maxWidth: 120 },
 
-  datePicker: { flexDirection: 'row', marginBottom: 20 },
-  dateCard: { width: 65, height: 80, backgroundColor: theme.colors.surface, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12, borderWidth: 1, borderColor: theme.colors.border },
-  dateCardSelected: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  dayName: { fontSize: 10, fontWeight: 'bold', color: theme.colors.textSecondary, marginBottom: 4 },
-  dayNum: { fontSize: 22, fontWeight: '900', color: theme.colors.textPrimary },
-  dateTextSelected: { color: '#FFFFFF' },
+  calendarWrapper: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 24,
+    padding: 10,
+    marginBottom: 30,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
 
   actionContainer: { gap: 12, marginTop: 20 },
   acceptButton: { backgroundColor: theme.colors.primary, height: 60, borderRadius: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', elevation: 4 },
   acceptButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900', letterSpacing: 2 },
   rerollButton: { height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: theme.colors.primary },
   rerollButtonText: { color: theme.colors.primary, fontSize: 16, fontWeight: '900', letterSpacing: 2 },
+  readOnlyFooter: {
+    marginTop: 8,
+    marginBottom: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  readOnlyFooterText: {
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 22,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
 
   closeButton: { position: 'absolute', top: 50, left: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.8)', alignItems: 'center', justifyContent: 'center', zIndex: 10 },
 });

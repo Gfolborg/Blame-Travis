@@ -9,7 +9,6 @@ import Animated, {
   Easing,
   interpolate,
   Extrapolation,
-  withSpring
 } from 'react-native-reanimated';
 import { Gyroscope } from 'expo-sensors';
 import { theme } from '../theme';
@@ -20,7 +19,7 @@ interface MapBackgroundProps {
   scrollOffset?: SharedValue<number>;
 }
 
-export const MapBackground: React.FC<MapBackgroundProps> = ({ scrollOffset }) => {
+const MapBackgroundComponent: React.FC<MapBackgroundProps> = ({ scrollOffset }) => {
   const panX = useSharedValue(0);
   const panY = useSharedValue(0);
   const gyroX = useSharedValue(0);
@@ -47,16 +46,16 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ scrollOffset }) =>
         const isAvailable = await Gyroscope.isAvailableAsync();
         if (!isAvailable) return;
 
-        Gyroscope.setUpdateInterval(50);
+        Gyroscope.setUpdateInterval(120);
         subscription = Gyroscope.addListener(data => {
-          const sensitivity = 15;
-          gyroX.value = withSpring(
+          const sensitivity = 10;
+          gyroX.value = withTiming(
             interpolate(data.y, [-2, 2], [-sensitivity, sensitivity], Extrapolation.CLAMP),
-            { damping: 15, stiffness: 40 }
+            { duration: 180, easing: Easing.out(Easing.quad) }
           );
-          gyroY.value = withSpring(
+          gyroY.value = withTiming(
             interpolate(data.x, [-2, 2], [-sensitivity, sensitivity], Extrapolation.CLAMP),
-            { damping: 15, stiffness: 40 }
+            { duration: 180, easing: Easing.out(Easing.quad) }
           );
         });
       } catch (e) {
@@ -69,7 +68,7 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ scrollOffset }) =>
     return () => {
       if (subscription) subscription.remove();
     };
-  }, []);
+  }, [gyroX, gyroY, panX, panY]);
 
   const animatedStyle = useAnimatedStyle(() => {
     const parallaxTranslateY = scrollOffset 
@@ -98,6 +97,8 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ scrollOffset }) =>
     </View>
   );
 };
+
+export const MapBackground = React.memo(MapBackgroundComponent);
 
 const styles = StyleSheet.create({
   container: {

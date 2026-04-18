@@ -6,15 +6,6 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 
 const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
-console.log('--- EXPO PREBUILD DEBUG ---');
-console.log('API Key Found in Env:', !!apiKey);
-if (apiKey) {
-  console.log('Key starts with:', apiKey.substring(0, 5) + '...');
-} else {
-  console.log('Variables available:', Object.keys(process.env).filter(k => k.startsWith('EXPO_')));
-}
-console.log('---------------------------');
-
 export default {
   expo: {
     name: "Blame Travis",
@@ -59,6 +50,7 @@ export default {
       ]
     },
     plugins: [
+      "expo-localization",
       [
         "expo-location",
         {

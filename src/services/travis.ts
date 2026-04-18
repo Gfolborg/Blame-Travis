@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 
 interface TravisPersonaParams {
-  vibes: string;
+  intensity: string;
   location: string;
   budget: string;
   stops: string[];
@@ -19,14 +19,42 @@ export const travisService = {
 
       if (error) {
         console.error('Travis Edge Function Error:', error);
-        return this.getFallbackNarrative(params);
+        return this.getFallbackNarrative({ ...params, vibes: params.intensity });
       }
 
       // The Edge function now returns the JSON object directly
       return data;
     } catch (error) {
       console.error('Travis Service Error:', error);
-      return this.getFallbackNarrative(params);
+      return this.getFallbackNarrative({ ...params, vibes: params.intensity });
+    }
+  },
+
+  async generateScoutQueries(params: {
+    intensity: string;
+    location: string;
+    budget: string;
+    weather?: string;
+    relaxationLevel?: number;
+    radius?: number;
+  }): Promise<{ activityQueries: string[]; foodQueries: string[]; nearbyCity?: string }> {
+    try {
+      const { data, error } = await supabase.functions.invoke('travis-narrative', {
+        body: {
+          action: 'generate-scout-queries',
+          ...params
+        }
+      });
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Scout Query Generation Error:', error);
+      // Fallback queries if AI fails
+      return {
+        activityQueries: ['top tourist attraction', 'scenic landmark', 'local museum'],
+        foodQueries: ['highly rated restaurant', 'popular cafe']
+      };
     }
   },
 
@@ -51,11 +79,35 @@ export const travisService = {
     }
   },
 
-  getFallbackNarrative(params: TravisPersonaParams) {
-    const mainVibe = params.vibes.split(',')[0].toUpperCase();
+  async planItineraryStructure(params: any): Promise<any[]> {
+    try {
+      const { data, error } = await supabase.functions.invoke('travis-narrative', {
+        body: { 
+          action: 'plan-structure', 
+          ...params
+        }
+      });
+      if (error) throw error;
+      return data?.blueprint || [];
+    } catch (e) {
+      console.error('Itinerary structure planning failed:', e);
+      // Basic static fallback if AI fails
+      return Array.from({ length: params.days }, (_, i) => ({
+        day: i + 1,
+        type: 'explore',
+        slots: ['activity', 'food', 'activity']
+      }));
+    }
+  },
+
+  getFallbackNarrative(params: any) {
+    const label = (params.intensity || params.vibes || 'BALANCED').toString();
     return {
-      title: `THE ${mainVibe} CIRCUIT`,
-      main_goal: `Explore the ${params.vibes} side of ${params.location}.`,
+      title: `THE ${label.toUpperCase()} CIRCUIT`,
+      main_goal: `Complete this ${label} journey in ${params.location}.`,
+      bonus_goal: "Don't get lost.",
+      why_travis_picked_this: "I looked at the map and this seemed like the only way to save your weekend.",
+      stop_insights: params.stops.map(() => "A solid choice for this itinerary."),
       notes: `I found a few spots that fit your ${params.budget} budget. Don't overthink it, just get out there and see what happens.`
     };
   }

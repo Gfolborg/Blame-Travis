@@ -17,10 +17,9 @@ serve(async (req) => {
   }
 
   try {
-    const { title, location, adventureId, goal, stops } = await req.json()
+    const { title, location, adventureId, goal, intensity } = await req.json()
     console.log(`[IMAGE] Request received: ${title} in ${location} for ${adventureId}`)
 
-    const stopsContext = stops && stops.length > 0 ? ` featuring spots like ${stops.join(', ')}` : '';
     const goalContext = goal ? `. The theme is: ${goal}` : '';
 
     // 1. Request Image from OpenRouter (Nano Banana)
@@ -40,9 +39,10 @@ serve(async (req) => {
             content: [
               {
                 type: 'text',
-                text: `GENERATE_IMAGE: A cinematic, high-fidelity fine-art travel photograph of ${location}${stopsContext}${goalContext}. 
+                text: `GENERATE_IMAGE: A single, cinematic, high-fidelity fine-art travel photograph representing a '${intensity}' energy level experience in ${location}. ${goalContext}. 
                 Style: Analog film photography, Kodak Portra 400 aesthetic, grainy texture, warm golden hour lighting, 
                 sophisticated composition, minimal, professional. 
+                REQUIREMENT: This MUST be ONE single unified photograph. Do NOT create collages, split-screens, or multi-panel images. 
                 No text, no people, no digital-looking illustrations.`
               }
             ]

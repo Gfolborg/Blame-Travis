@@ -12,25 +12,38 @@ interface InkBleedItemProps {
   children: React.ReactNode;
   delay?: number;
   duration?: number;
+  animationKey?: string;
 }
+
+const revealedKeys = new Set<string>();
 
 /**
  * InkBleedItem — A tactile reveal animation.
  * Mimics ink soaking into paper: starts faint/blurry and settles into sharp/dark.
  */
-export const InkBleedItem: React.FC<InkBleedItemProps> = ({ 
+const InkBleedItemComponent: React.FC<InkBleedItemProps> = ({ 
   children, 
   delay = 0, 
-  duration = 800 
+  duration = 800,
+  animationKey,
 }) => {
-  const progress = useSharedValue(0);
+  const hasAnimated = !!animationKey && revealedKeys.has(animationKey);
+  const progress = useSharedValue(hasAnimated ? 1 : 0);
 
   useEffect(() => {
+    if (animationKey && revealedKeys.has(animationKey)) {
+      progress.value = 1;
+      return;
+    }
+
     progress.value = withDelay(delay, withTiming(1, { 
       duration, 
       easing: Easing.out(Easing.quad) 
     }));
-  }, [delay, duration]);
+    if (animationKey) {
+      revealedKeys.add(animationKey);
+    }
+  }, [animationKey, delay, duration, progress]);
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
@@ -52,3 +65,5 @@ export const InkBleedItem: React.FC<InkBleedItemProps> = ({
     </Animated.View>
   );
 };
+
+export const InkBleedItem = React.memo(InkBleedItemComponent);

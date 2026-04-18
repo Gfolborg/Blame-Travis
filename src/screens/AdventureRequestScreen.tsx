@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,13 +11,17 @@ import {
   ActivityIndicator,
   Dimensions,
   Image,
+  Animated,
+  PanResponder,
+  Keyboard,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import * as Location from 'expo-location';
+import * as Localization from 'expo-localization';
 
 import { RootStackParamList } from '../types/navigation';
 import { theme } from '../theme';
@@ -43,22 +47,11 @@ try {
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'AdventureRequest'>;
 
-const DURATIONS = [
-  { id: '1_day', label: '1 DAY', icon: '🏙️' },
-  { id: 'weekend', label: 'WEEKEND', icon: '⛺' },
-  { id: 'vacation', label: '1+ WEEKS', icon: '✈️' },
-];
-
-const VIBES = [
-  { id: 'food', label: 'FOOD', icon: '🍽️' },
-  { id: 'nature', label: 'NATURE', icon: '🌲' },
-  { id: 'culture', label: 'CULTURE', icon: '🏛️' },
-  { id: 'adventure', label: 'ADVENTURE', icon: '🎒' },
-  { id: 'beach', label: 'BEACH', icon: '🏖️' },
-  { id: 'mountain', label: 'MOUNTAIN', icon: '🏔️' },
-  { id: 'nightlife', label: 'NIGHTLIFE', icon: '🌃' },
-  { id: 'chill', label: 'CHILL', icon: '🧘' },
-  { id: 'active', label: 'ACTIVE', icon: '🏃' },
+const INTENSITIES = [
+  { id: 'low', label: 'LOW BATTERY', icon: '🧘', desc: 'Chill & Recover' },
+  { id: 'balanced', label: 'BALANCED', icon: '⚖️', desc: 'Mix of Everything' },
+  { id: 'high', label: 'HIGH OCTANE', icon: '🚀', desc: 'Active & Intense' },
+  { id: 'ruthless', label: 'RUTHLESS', icon: '⚡', desc: 'Travis Style Only' },
 ];
 
 const BUDGETS = [
@@ -68,94 +61,281 @@ const BUDGETS = [
   { id: 'travis', label: '!!!', desc: 'TRAVIS STYLE' },
 ];
 
+const useImperialUnits = () => {
+  const regionCode = Localization.getLocales()[0]?.regionCode;
+  return regionCode === 'US' || regionCode === 'LR' || regionCode === 'MM';
+};
+
 const AdventureRequestScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const mapRef = useRef<any>(null);
+  const insets = useSafeAreaInsets();
+  const isImperial = useMemo(() => useImperialUnits(), []);
 
+  // Bottom Sheet Animation & Gestures
+  const screenHeight = Dimensions.get('window').height;
+  const SNAP_POINTS = {
+    COLLAPSED: 180,
+    FULL: screenHeight * 0.6
+  };
+
+  const sheetHeight = useRef(new Animated.Value(SNAP_POINTS.COLLAPSED)).current;
+  const [currentSnap, setCurrentSnap] = useState('COLLAPSED');
+  const currentSnapRef = useRef('COLLAPSED');
+  const isAtTop = useRef(true);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        const isSwipingDown = gestureState.dy > 5;
+        const isSwipingUp = gestureState.dy < -5;
+        
+        // Absolute touch position
+        const touchY = gestureState.y0;
+        const currentHeight = SNAP_POINTS[currentSnapRef.current as keyof typeof SNAP_POINTS];
+        const sheetTop = screenHeight - currentHeight;
+
+        // 1. Capture if touching the top header area of the sheet
+        if (touchY >= sheetTop && touchY <= sheetTop + 100) return true;
+
+        // 2. Capture if swiping up from a collapsed state
+        if (currentSnapRef.current === 'COLLAPSED' && isSwipingUp) return true;
+
+        // 3. Capture if at the top of scroll content and swiping down to collapse
+        if (isAtTop.current && isSwipingDown) return true;
+
+        return false;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const startHeight = SNAP_POINTS[currentSnapRef.current as keyof typeof SNAP_POINTS];
+        const newHeight = startHeight - gestureState.dy;
+        if (newHeight >= SNAP_POINTS.COLLAPSED && newHeight <= SNAP_POINTS.FULL) {
+          sheetHeight.setValue(newHeight);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const finalHeight = SNAP_POINTS[currentSnapRef.current as keyof typeof SNAP_POINTS] - gestureState.dy;
+        let nearestSnap: keyof typeof SNAP_POINTS = 'COLLAPSED';
+        
+        if (finalHeight > (SNAP_POINTS.COLLAPSED + SNAP_POINTS.FULL) / 2) {
+          nearestSnap = 'FULL';
+        }
+
+        Animated.spring(sheetHeight, {
+          toValue: SNAP_POINTS[nearestSnap],
+          useNativeDriver: false,
+          friction: 8,
+          tension: 40,
+        }).start();
+        currentSnapRef.current = nearestSnap;
+        setCurrentSnap(nearestSnap);
+      },
+    })
+  ).current;
+
+  // Map & Location State
   const [region, setRegion] = useState({
     latitude: 37.78825,
     longitude: -122.4324,
     latitudeDelta: 0.0922,
     longitudeDelta: 0.0421,
   });
-  const [radius, setRadius] = useState(5000); // 5km default
-  const [duration, setDuration] = useState('1_day');
+  const [radius, setRadius] = useState(5000); 
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<any[]>([]);
-  const [selectedVibes, setSelectedVibes] = useState<string[]>(['food']);
-  const [budget, setBudget] = useState('mid');
-  const [isCalculating, setIsCalculating] = useState(false);
-  const [isMapReady, setIsMapReady] = useState(false);
-  const [isSurprising, setIsSurpriseLoading] = useState(false);
+  const [isSearchingList, setIsSearchingList] = useState(false);
 
+  // Autocomplete Effect
   useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const location = await Location.getCurrentPositionAsync({});
-        const newRegion = {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          latitudeDelta: 0.0922,
-          longitudeDelta: 0.0421,
-        };
-        setRegion(newRegion);
-        if (!mapLoadError) {
-          mapRef.current?.animateToRegion(newRegion, 1000);
-        }
+    const delayDebounceFn = setTimeout(async () => {
+      if (searchQuery.length >= 3) {
+        setIsSearchingList(true);
+        const results = await discoveryService.autocomplete(searchQuery);
+        setSuggestions(results);
+        setIsSearchingList(false);
+      } else {
+        setSuggestions([]);
       }
-    })();
-  }, []);
+    }, 500);
 
-  const fetchSuggestions = async (input: string) => {
-    setSearchQuery(input);
-    if (input.length < 3) {
-      setSuggestions([]);
-      return;
-    }
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
 
-    try {
-      const { data } = await supabase.functions.invoke('discover-places', {
-        body: { action: 'autocomplete', payload: { input } }
-      });
-      if (data?.suggestions) {
-        setSuggestions(data.suggestions);
-      }
-    } catch (e) {
-      console.error('Autocomplete failed:', e);
+  const handleSelectSuggestion = async (suggestion: any) => {
+   const text = suggestion.placePrediction?.text?.text || suggestion.text?.text;
+   const placeId = suggestion.placePrediction?.placeId;
+   setSearchQuery(text);
+   setSuggestions([]);
+
+   setIsSearchingList(true);
+   const coords = await discoveryService.geocode(text, placeId);
+   setIsSearchingList(false);
+    if (coords) {
+      const newRegion = {
+        latitude: coords.lat,
+        longitude: coords.lng,
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      };
+      setRegion(newRegion);
+      if (!mapLoadError) mapRef.current?.animateToRegion(newRegion, 1000);
     }
   };
 
-  const selectSuggestion = async (suggestion: any) => {
-    const text = suggestion.placePrediction?.text?.text || '';
-    setSearchQuery(text);
-    setSuggestions([]);
+  // Itinerary Params
+  const [intensity, setIntensity] = useState('balanced');
+  const [budget, setBudget] = useState('mid');
+  const [roamingMode, setRoamingMode] = useState<'strict' | 'roam'>('strict');
+  const [maxActivities, setMaxActivities] = useState(3);
+  const [days, setDays] = useState(3);
+  const [relaxationLevel, setRelaxationLevel] = useState(0);
 
+  // Status
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [isMapReady, setIsMapReady] = useState(false);
+  const [isSurprising, setIsSurpriseLoading] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+
+  useEffect(() => {
+    handleResetToCurrentLocation();
+  }, []);
+
+  const toggleSheet = () => {
+    const nextSnap = currentSnap === 'COLLAPSED' ? 'FULL' : 'COLLAPSED';
+    Animated.spring(sheetHeight, {
+      toValue: SNAP_POINTS[nextSnap],
+      useNativeDriver: false,
+    }).start();
+    currentSnapRef.current = nextSnap;
+    setCurrentSnap(nextSnap);
+  };
+
+  const animatedSummaryOpacity = sheetHeight.interpolate({
+    inputRange: [SNAP_POINTS.COLLAPSED, SNAP_POINTS.COLLAPSED + 50],
+    outputRange: [1, 0],
+    extrapolate: 'clamp'
+  });
+
+  const animatedContentOpacity = sheetHeight.interpolate({
+    inputRange: [SNAP_POINTS.COLLAPSED + 50, SNAP_POINTS.FULL],
+    outputRange: [0, 1],
+    extrapolate: 'clamp'
+  });
+
+  const summaryText = useMemo(() => {
+    const b = BUDGETS.find(o => o.id === budget)?.label || '$$';
+    const i = INTENSITIES.find(o => o.id === intensity)?.label || 'BALANCED';
+    return `${i} • ${b} • ${days} DAY${days > 1 ? 'S' : ''}`;
+  }, [intensity, budget, days]);
+
+  const handleMapInteraction = () => {
+    Keyboard.dismiss();
+    if (suggestions.length > 0) setSuggestions([]);
+    
+    if (currentSnapRef.current === 'FULL') {
+      collapseSheet();
+    }
+  };
+
+  const collapseSheet = () => {
+    Animated.spring(sheetHeight, {
+      toValue: SNAP_POINTS.COLLAPSED,
+      useNativeDriver: false,
+      friction: 8,
+      tension: 40,
+    }).start();
+    currentSnapRef.current = 'COLLAPSED';
+    setCurrentSnap('COLLAPSED');
+  };
+
+  const handleRegionChangeComplete = (newRegion: any) => {
+    setRegion(newRegion);
+    // Note: handleMapInteraction is already called by onPanDrag/onPress for immediate response
+    if (roamingMode === 'strict') {
+      // 0.3 factor ensures the circle fills roughly 30-40% of the screen
+      const zoomBasedRadius = Math.round((newRegion.latitudeDelta * 111000) * 0.3);
+      const clampedRadius = Math.max(500, Math.min(50000, zoomBasedRadius));
+      
+      // Use a smaller threshold (10%) for higher precision at high altitudes
+      if (Math.abs(clampedRadius - radius) > radius * 0.1) {
+        setRadius(clampedRadius);
+      }
+    }
+  };
+
+  const handleResetToCurrentLocation = async () => {
+    if (isLocating) return;
+    
     try {
-      const { data } = await supabase.functions.invoke('discover-places', {
-        body: { action: 'geocode', payload: { query: text } }
-      });
-      if (data?.places?.[0]?.location) {
-        const newRegion = {
-          latitude: data.places[0].location.latitude,
-          longitude: data.places[0].location.longitude,
+      setIsLocating(true);
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setIsLocating(false);
+        return;
+      }
+
+      // 1. FAST SNAP: Try last known position first for instant result
+      const lastKnown = await Location.getLastKnownPositionAsync({});
+      if (lastKnown) {
+        const fastRegion = {
+          latitude: lastKnown.coords.latitude,
+          longitude: lastKnown.coords.longitude,
           latitudeDelta: 0.0922,
           longitudeDelta: 0.0421,
         };
-        setRegion(newRegion);
-        if (!mapLoadError) {
-          mapRef.current?.animateToRegion(newRegion, 1000);
-        }
+        setRegion(fastRegion);
+        if (!mapLoadError && isMapReady) mapRef.current?.animateToRegion(fastRegion, 800);
+      }
+
+      // 2. PRECISION SNAP: Get fresh current position
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const precisionRegion = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      };
+      
+      setRegion(precisionRegion);
+      if (!mapLoadError && isMapReady) {
+        mapRef.current?.animateToRegion(precisionRegion, 1000);
       }
     } catch (e) {
-      console.error('Geocoding failed:', e);
+      console.warn('Could not reset to current location:', e);
+    } finally {
+      setIsLocating(false);
     }
+  };
+
+  const handleCalculate = async () => {
+    try {
+      setIsCalculating(true);
+      const adventure = await discoveryService.generateAdventure({
+        coords: { lat: region.latitude, lng: region.longitude },
+        radius: radius,
+        days,
+        intensity,
+        budget,
+        roamingMode,
+        maxActivities,
+        relaxationLevel,
+      });
+      navigation.navigate('AdventureAssignment', { 
+        AdventureId: adventure.id,
+        initialAdventure: adventure
+      });
+    } catch (error) { console.error(error); } finally { setIsCalculating(false); }
   };
 
   const handleSurpriseMe = async () => {
     try {
       setIsSurpriseLoading(true);
       const hub = await discoveryService.fetchRandomHub();
+      setSearchQuery(hub.name);
       const newRegion = {
         latitude: hub.lat,
         longitude: hub.lng,
@@ -163,219 +343,272 @@ const AdventureRequestScreen = () => {
         longitudeDelta: 0.0421,
       };
       setRegion(newRegion);
-      if (!mapLoadError) {
-        mapRef.current?.animateToRegion(newRegion, 1500);
-      }
-    } catch (e) {
-      console.error('Surprise Me failed:', e);
-    } finally {
-      setIsSurpriseLoading(false);
-    }
+      if (!mapLoadError) mapRef.current?.animateToRegion(newRegion, 1500);
+    } catch (e) { console.error(e); } finally { setIsSurpriseLoading(false); }
   };
 
-  const toggleVibe = (id: string) => {
-    if (selectedVibes.includes(id)) {
-      if (selectedVibes.length > 1) {
-        setSelectedVibes(selectedVibes.filter(v => v !== id));
-      }
-    } else {
-      setSelectedVibes([...selectedVibes, id]);
+  const displayDistance = useMemo(() => {
+    if (isImperial) {
+      const miles = radius / 1609.34;
+      return `${miles.toFixed(1)} mi`;
+    }
+    return `${(radius / 1000).toFixed(1)} km`;
+  }, [radius, isImperial]);
+
+  const toggleRoamingMode = (mode: 'strict' | 'roam') => {
+    setRoamingMode(mode);
+    if (mode === 'roam') {
+      setRadius(50000);
+      const delta = (50000 * 4) / 111000;
+      const newRegion = {
+        ...region,
+        latitudeDelta: delta,
+        longitudeDelta: delta * (Dimensions.get('window').width / (Dimensions.get('window').height * 0.4)),
+      };
+      setRegion(newRegion);
+      if (!mapLoadError) mapRef.current?.animateToRegion(newRegion, 1000);
     }
   };
-
-  const handleCalculate = async () => {
-    try {
-      setIsCalculating(true);
-      
-      const adventure = await discoveryService.generateAdventure({
-        coords: { lat: region.latitude, lng: region.longitude },
-        radius: radius,
-        duration,
-        vibe: selectedVibes.join(','),
-        budget,
-        date: new Date(),
-      });
-
-      navigation.navigate('AdventureAssignment', { 
-        AdventureId: adventure.id,
-        initialAdventure: adventure
-      });
-    } catch (error) {
-      console.error('Failed to generate adventure:', error);
-    } finally {
-      setIsCalculating(false);
-    }
-  };
-
-  if (isCalculating) {
-    return (
-      <View style={[styles.container, styles.calculatingContainer]}>
-        <TravisSignal status="thinking" size={120} />
-        <Text style={styles.calculatingTitle}>TRAVIS IS SCOUTING...</Text>
-        <Text style={styles.calculatingSubtitle}>Finding the perfect spots within your chosen circle.</Text>
-        <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 40 }} />
-      </View>
-    );
-  }
 
   return (
     <View style={styles.container}>
-      <SafeAreaView style={{ flex: 1 }}>
-        <SafeAreaHeader navigation={navigation} />
-
-        <View style={styles.mapContainer}>
-          {mapLoadError ? (
-            <View style={styles.mapFallback}>
-              <Image 
-                source={require('../../assets/textures/vintage-satellite-map.png')} 
-                style={StyleSheet.absoluteFill}
-                resizeMode="cover"
-              />
-              <View style={styles.fallbackOverlay}>
-                <TravisSignal status="thinking" size={60} />
-                <Text style={styles.fallbackText}>TRAVIS: "SCOUTING EQUIPMENT NOT CALIBRATED."</Text>
-                <Text style={styles.fallbackSubtext}>(REBUILD THE APP TO VIEW THE LIVE MAP)</Text>
-              </View>
+      {/* 100% MAP BACKGROUND */}
+      <View style={styles.mapContainerFull}>
+        {mapLoadError ? (
+          <View style={styles.mapFallback}>
+            <Image source={require('../../assets/textures/vintage-satellite-map.png')} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            <View style={styles.fallbackOverlay}>
+              <TravisSignal status="thinking" size={60} />
+              <Text style={styles.fallbackText}>TRAVIS: "SCOUTING EQUIPMENT NOT CALIBRATED."</Text>
             </View>
-          ) : (
-            <MapView
-              ref={mapRef}
-              style={styles.map}
-              initialRegion={region}
-              onRegionChangeComplete={(newRegion: any) => setRegion(newRegion)}
-              onMapReady={() => setIsMapReady(true)}
-            >
-              {isMapReady && (
-                <Circle
-                  center={{ latitude: region.latitude, longitude: region.longitude }}
-                  radius={radius}
-                  strokeColor={theme.colors.primary}
-                  fillColor={`${theme.colors.primary}22`}
-                  strokeWidth={2}
-                />
-              )}
-            </MapView>
-          )}
-          
-          {/* Fixed Center Marker Overlay - Still show it as it's the "Center" of the area */}
-          <View style={styles.markerOverlay} pointerEvents="none">
-            <Ionicons name="location" size={40} color={theme.colors.primary} />
           </View>
-
-          {/* Search Overlay */}
-          <View style={styles.searchOverlay}>
-            <View style={styles.searchInputContainer}>
-              <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={{ marginLeft: 12 }} />
-              <TextInput
-                style={styles.mapSearchInput}
-                placeholder="Search City..."
-                placeholderTextColor={theme.colors.textSecondary}
-                value={searchQuery}
-                onChangeText={fetchSuggestions}
+        ) : (
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            initialRegion={region}
+            onRegionChangeComplete={handleRegionChangeComplete}
+            onPress={handleMapInteraction}
+            onPanDrag={handleMapInteraction}
+            onMapReady={() => setIsMapReady(true)}
+            userInterfaceStyle="light"
+          >
+            {isMapReady && (
+              <Circle
+                center={{ latitude: region.latitude, longitude: region.longitude }}
+                radius={radius}
+                strokeColor={theme.colors.primary}
+                fillColor={`${theme.colors.primary}22`}
+                strokeWidth={2}
               />
-              <TouchableOpacity 
-                onPress={handleSurpriseMe} 
-                style={styles.surpriseButton}
-                disabled={isSurprising}
-              >
-                {isSurprising ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <Ionicons name="dice" size={24} color={theme.colors.primary} />
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {suggestions.length > 0 && (
-              <View style={styles.suggestionsList}>
-                {suggestions.map((s, i) => (
-                  <TouchableOpacity 
-                    key={i} 
-                    style={styles.suggestionItem}
-                    onPress={() => selectSuggestion(s)}
-                  >
-                    <Text style={styles.suggestionText}>{s.placePrediction?.text?.text}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
             )}
-          </View>
+          </MapView>
+        )}
+        <View style={styles.markerOverlay} pointerEvents="none">
+          <Ionicons name="location" size={40} color={theme.colors.primary} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          {/* Radius Slider */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>SEARCH RADIUS</Text>
-              <Text style={styles.radiusValue}>{(radius / 1000).toFixed(1)} km</Text>
-            </View>
-            <Slider
-              style={styles.slider}
-              minimumValue={1000}
-              maximumValue={50000}
-              step={500}
-              value={radius}
-              onValueChange={setRadius}
-              minimumTrackTintColor={theme.colors.primary}
-              maximumTrackTintColor={theme.colors.border}
-              thumbTintColor={theme.colors.primary}
+        {/* RESET TO CURRENT LOCATION BUTTON */}
+        <TouchableOpacity 
+          style={[styles.locateButton, { bottom: SNAP_POINTS.COLLAPSED + 20 }]} 
+          onPress={handleResetToCurrentLocation}
+          disabled={isLocating}
+        >
+          {isLocating ? (
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+          ) : (
+            <Ionicons name="locate" size={24} color={theme.colors.primary} />
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* FLOATING SEARCH */}
+      <View style={[styles.floatingHeader, { paddingTop: insets.top + 10 }]}>
+        <View style={styles.searchOverlayFloating}>
+          <View style={styles.searchInputContainer}>
+            <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={{ marginLeft: 12 }} />
+            <TextInput
+              style={styles.mapSearchInput}
+              placeholder="Search City..."
+              placeholderTextColor={theme.colors.textSecondary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
             />
+            <TouchableOpacity onPress={handleSurpriseMe} style={styles.surpriseButton} disabled={isSurprising}>
+              {isSurprising ? <ActivityIndicator size="small" color={theme.colors.primary} /> : <Ionicons name="dice" size={24} color={theme.colors.primary} />}
+            </TouchableOpacity>
           </View>
 
-          {/* Duration */}
-          <Text style={styles.sectionTitle}>HOW LONG ARE WE OUT FOR?</Text>
-          <View style={styles.optionsGrid}>
-            {DURATIONS.map((opt) => (
-              <OptionCard 
-                key={opt.id}
-                item={opt}
-                isSelected={duration === opt.id}
-                onPress={() => setDuration(opt.id)}
+          {/* SEARCH SUGGESTIONS */}
+          {(suggestions.length > 0 || isSearchingList) && (
+            <View style={styles.suggestionsContainer}>
+              {isSearchingList && suggestions.length === 0 && (
+                <View style={styles.suggestionItem}>
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                  <Text style={styles.suggestionText}>Searching...</Text>
+                </View>
+              )}
+              <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 300 }}>
+                {suggestions.map((item, idx) => (
+                  <TouchableOpacity 
+                    key={idx} 
+                    style={styles.suggestionItem}
+                    onPress={() => handleSelectSuggestion(item)}
+                  >
+                    <Ionicons name="location-outline" size={18} color={theme.colors.textSecondary} />
+                    <Text style={styles.suggestionText} numberOfLines={1}>
+                      {item.placePrediction?.text?.text || item.text?.text}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* EXPANDABLE BRIEFING SHEET */}
+      <Animated.View 
+        style={[styles.bottomSheet, { height: sheetHeight, paddingBottom: insets.bottom }]}
+        {...panResponder.panHandlers}
+      >
+        <View style={styles.sheetHeaderArea}>
+          <TouchableOpacity style={styles.sheetHandleContainer} onPress={toggleSheet} activeOpacity={1}>
+            <View style={styles.sheetHandle} />
+          </TouchableOpacity>
+
+          <Animated.View style={[styles.summaryContainer, { opacity: animatedSummaryOpacity }]} pointerEvents="none">
+            <Text style={styles.summaryTitle}>{summaryText}</Text>
+            <Text style={styles.summarySubtitle}>SWIPE UP TO ADJUST LOGISTICS</Text>
+          </Animated.View>
+        </View>
+
+        <Animated.View style={[styles.expandedContent, { opacity: animatedContentOpacity }]} pointerEvents={currentSnap === 'COLLAPSED' ? 'none' : 'auto'}>
+          <ScrollView 
+            showsVerticalScrollIndicator={false} 
+            contentContainerStyle={styles.sheetScroll}
+            onScroll={(e) => {
+              isAtTop.current = e.nativeEvent.contentOffset.y <= 0;
+            }}
+            scrollEventThrottle={16}
+            bounces={false}
+          >
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>SEARCH RADIUS</Text>
+                <Text style={styles.radiusValue}>{displayDistance}</Text>
+              </View>
+              <Slider
+                style={styles.slider}
+                minimumValue={isImperial ? 0.5 : 1}
+                maximumValue={isImperial ? 31.0 : 50}
+                step={isImperial ? 0.5 : 1}
+                value={isImperial ? radius / 1609.34 : radius / 1000}
+                onValueChange={(v) => {
+                  const newRadius = isImperial ? v * 1609.34 : v * 1000;
+                  setRadius(newRadius);
+                  const newDelta = (newRadius * 3) / 111000;
+                  const newRegion = {
+                    ...region,
+                    latitudeDelta: newDelta,
+                    longitudeDelta: newDelta * (Dimensions.get('window').width / (Dimensions.get('window').height * 0.4)),
+                  };
+                  setRegion(newRegion);
+                  if (!mapLoadError) mapRef.current?.animateToRegion(newRegion, 500);
+                }}
+                minimumTrackTintColor={theme.colors.primary}
+                maximumTrackTintColor={theme.colors.border}
+                thumbTintColor={theme.colors.primary}
               />
-            ))}
-          </View>
+            </View>
 
-          {/* Budget */}
-          <Text style={styles.sectionTitle}>WHAT'S THE DAMAGE? (BUDGET)</Text>
-          <View style={styles.budgetContainer}>
-            {BUDGETS.map((opt) => (
-              <TouchableOpacity
-                key={opt.id}
-                style={[
-                  styles.budgetOption,
-                  budget === opt.id && styles.budgetOptionSelected
-                ]}
-                onPress={() => setBudget(opt.id)}
-              >
-                <Text style={[
-                  styles.budgetLabel,
-                  budget === opt.id && styles.budgetLabelSelected
-                ]}>{opt.label}</Text>
-                <Text style={[
-                  styles.budgetDesc,
-                  budget === opt.id && styles.budgetDescSelected
-                ]}>{opt.desc}</Text>
+            <Text style={styles.sectionTitle}>TRAVEL STYLE</Text>
+            <View style={styles.toggleRow}>
+              <TouchableOpacity style={[styles.toggleBtn, roamingMode === 'strict' && styles.toggleBtnActive]} onPress={() => toggleRoamingMode('strict')}>
+                <Text style={[styles.toggleText, roamingMode === 'strict' && styles.toggleTextActive]}>BASE CAMP</Text>
               </TouchableOpacity>
-            ))}
-          </View>
+              <TouchableOpacity style={[styles.toggleBtn, roamingMode === 'roam' && styles.toggleBtnActive]} onPress={() => toggleRoamingMode('roam')}>
+                <Text style={[styles.toggleText, roamingMode === 'roam' && styles.toggleTextActive]}>ROAMER</Text>
+              </TouchableOpacity>
+            </View>
 
-          {/* Vibes */}
-          <Text style={styles.sectionTitle}>WHAT'S THE VIBE?</Text>
-          <View style={styles.grid}>
-            {VIBES.map((opt) => (
-              <OptionCard 
-                key={opt.id}
-                item={opt}
-                isSelected={selectedVibes.includes(opt.id)}
-                onPress={() => toggleVibe(opt.id)}
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>MAX ACTIVITIES PER DAY</Text>
+                <Text style={styles.radiusValue}>{maxActivities}</Text>
+              </View>
+              <Slider
+                style={styles.slider}
+                minimumValue={1}
+                maximumValue={6}
+                step={1}
+                value={maxActivities}
+                onValueChange={setMaxActivities}
+                minimumTrackTintColor={theme.colors.primary}
+                maximumTrackTintColor={theme.colors.border}
+                thumbTintColor={theme.colors.primary}
               />
-            ))}
-          </View>
+            </View>
 
-          <View style={{ height: 100 }} />
-        </ScrollView>
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>HOW MANY DAYS?</Text>
+                <Text style={styles.radiusValue}>{days}</Text>
+              </View>
+              <Slider
+                style={styles.slider}
+                minimumValue={1}
+                maximumValue={30}
+                step={1}
+                value={days}
+                onValueChange={setDays}
+                minimumTrackTintColor={theme.colors.primary}
+                maximumTrackTintColor={theme.colors.border}
+                thumbTintColor={theme.colors.primary}
+              />
+            </View>
 
-        <View style={styles.footer}>
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>RELAXATION / CHILL</Text>
+                <Text style={styles.radiusValue}>{relaxationLevel}</Text>
+              </View>
+              <Slider
+                style={styles.slider}
+                minimumValue={0}
+                maximumValue={10}
+                step={1}
+                value={relaxationLevel}
+                onValueChange={setRelaxationLevel}
+                minimumTrackTintColor={theme.colors.primary}
+                maximumTrackTintColor={theme.colors.border}
+                thumbTintColor={theme.colors.primary}
+              />
+            </View>
+
+            <Text style={styles.sectionTitle}>BUDGET</Text>
+            <View style={styles.budgetContainer}>
+              {BUDGETS.map((opt) => (
+                <TouchableOpacity key={opt.id} style={[styles.budgetOption, budget === opt.id && styles.budgetOptionSelected]} onPress={() => setBudget(opt.id)}>
+                  <Text style={[styles.budgetLabel, budget === opt.id && styles.budgetLabelSelected]}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.sectionTitle}>ENERGY LEVEL</Text>
+            <View style={styles.intensityContainer}>
+              {INTENSITIES.map((opt) => (
+                <TouchableOpacity key={opt.id} style={[styles.intensityOption, intensity === opt.id && styles.intensityOptionSelected]} onPress={() => setIntensity(opt.id)}>
+                  <Text style={styles.intensityIcon}>{opt.icon}</Text>
+                  <Text style={[styles.intensityLabel, intensity === opt.id && styles.intensityLabelSelected]}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </Animated.View>
+
+        <View style={styles.sheetFooter}>
           <TouchableOpacity 
             style={styles.calculateButton}
             onPress={handleCalculate}
@@ -383,305 +616,103 @@ const AdventureRequestScreen = () => {
             <Text style={styles.buttonText}>STAMP MY JOURNEY</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </Animated.View>
+
+      {isCalculating && (
+        <View style={styles.calculatingOverlay}>
+          <TravisSignal status="thinking" size={120} />
+          <Text style={styles.calculatingTitle}>TRAVIS IS SCOUTING...</Text>
+          <Text style={styles.calculatingSubtitle}>Mapping your itinerary.</Text>
+        </View>
+      )}
     </View>
   );
 };
 
-
-const SafeAreaHeader = ({ navigation }: any) => (
-  <View style={styles.header}>
-    <TouchableOpacity onPress={() => navigation.goBack()}>
-      <Ionicons name="close" size={28} color={theme.colors.textPrimary} />
-    </TouchableOpacity>
-    <View style={styles.headerRight}>
-      <Text style={styles.headerLabel}>PLANNING WITH TRAVIS</Text>
-      <TravisSignal status="thinking" size={40} />
-    </View>
-  </View>
-);
-
-const OptionCard = ({ item, isSelected, onPress }: any) => (
-  <TouchableOpacity
-    style={[styles.card, isSelected && styles.cardSelected]}
-    onPress={onPress}
-    activeOpacity={0.7}
-  >
-    <Text style={styles.cardIcon}>{item.icon}</Text>
-    <Text style={[styles.cardLabel, isSelected && styles.cardLabelSelected]}>
-      {item.label}
-    </Text>
-  </TouchableOpacity>
-);
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  calculatingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: theme.spacing.xl,
-  },
-  calculatingTitle: {
-    color: theme.colors.textPrimary,
-    fontSize: 24,
-    fontWeight: '900',
-    marginTop: 32,
-    letterSpacing: 1,
-    textAlign: 'center',
-  },
-  calculatingSubtitle: {
-    color: theme.colors.textSecondary,
-    fontSize: 16,
-    textAlign: 'center',
-    marginTop: 12,
-    lineHeight: 24,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.lg,
-    paddingBottom: theme.spacing.md,
-    paddingTop: Platform.OS === 'android' ? 20 : 0,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerLabel: {
-    color: theme.colors.textSecondary,
-    fontSize: 12,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-    marginRight: 12,
-  },
-  mapContainer: {
-    height: Dimensions.get('window').height * 0.4,
-    width: '100%',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  map: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  mapFallback: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#E0D8C8',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fallbackOverlay: {
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    padding: 24,
-    borderRadius: 20,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  fallbackText: {
-    color: theme.colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '900',
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  fallbackSubtext: {
-    color: theme.colors.textSecondary,
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  markerOverlay: {
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  mapContainerFull: { ...StyleSheet.absoluteFillObject },
+  map: { ...StyleSheet.absoluteFillObject },
+  mapFallback: { ...StyleSheet.absoluteFillObject, backgroundColor: '#E0D8C8', alignItems: 'center', justifyContent: 'center' },
+  fallbackOverlay: { backgroundColor: 'rgba(255,255,255,0.85)', padding: 24, borderRadius: 20, alignItems: 'center' },
+  fallbackText: { color: theme.colors.textPrimary, fontSize: 12, fontWeight: '900', marginTop: 16, textAlign: 'center' },
+  markerOverlay: { position: 'absolute', top: '50%', left: '50%', marginLeft: -20, marginTop: -40, alignItems: 'center', justifyContent: 'center' },
+  
+  floatingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, paddingHorizontal: 16 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  headerBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center', elevation: 2 },
+  headerInfo: { flex: 1, alignItems: 'center' },
+  headerLabel: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: '900', letterSpacing: 2 },
+  signalBadgeSmall: { backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 20, padding: 4, elevation: 2 },
+  
+  searchOverlayFloating: { zIndex: 10 },
+  searchInputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.95)', borderRadius: 12, height: 50, elevation: 3 },
+  mapSearchInput: { flex: 1, height: '100%', paddingHorizontal: 12, fontSize: 16, color: theme.colors.textPrimary },
+  surpriseButton: { padding: 12, borderLeftWidth: 1, borderLeftColor: theme.colors.border, minWidth: 48, alignItems: 'center' },
+
+  suggestionsContainer: { backgroundColor: 'rgba(255, 255, 255, 0.98)', borderRadius: 12, marginTop: 8, paddingVertical: 8, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8 },
+  suggestionItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+  suggestionText: { flex: 1, color: theme.colors.textPrimary, fontSize: 14, marginLeft: 10, fontWeight: '500' },
+
+  bottomSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.colors.background, borderTopLeftRadius: 32, borderTopRightRadius: 32, elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 10 },
+  sheetHeaderArea: { width: '100%', height: 100, alignItems: 'center', justifyContent: 'flex-start' },
+  sheetHandleContainer: { width: '100%', height: 30, alignItems: 'center', justifyContent: 'center' },
+  sheetHandle: { width: 40, height: 4, backgroundColor: theme.colors.border, borderRadius: 2 },
+  
+  summaryContainer: { position: 'absolute', top: 35, left: 0, right: 0, alignItems: 'center', paddingHorizontal: 20 },
+  summaryTitle: { fontSize: 18, fontWeight: '900', color: theme.colors.textPrimary, letterSpacing: 1 },
+  summarySubtitle: { fontSize: 9, fontWeight: 'bold', color: theme.colors.textSecondary, marginTop: 4, letterSpacing: 1 },
+  
+  expandedContent: { flex: 1 },
+  sheetScroll: { paddingHorizontal: 24, paddingTop: 10 },
+  
+  section: { marginBottom: 24 },
+  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionTitle: { color: theme.colors.textPrimary, fontSize: 11, fontWeight: '900', letterSpacing: 1.5, marginBottom: 12, marginTop: 12 },
+  radiusValue: { color: theme.colors.primary, fontSize: 14, fontWeight: '900' },
+  slider: { width: '100%', height: 40 },
+  
+  toggleRow: { flexDirection: 'row', backgroundColor: theme.colors.surface, borderRadius: 12, padding: 4, marginBottom: 20 },
+  toggleBtn: { flex: 1, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  toggleBtnActive: { backgroundColor: theme.colors.primary },
+  toggleText: { fontSize: 11, fontWeight: '900', color: theme.colors.textSecondary },
+  toggleTextActive: { color: '#fff' },
+  
+  budgetContainer: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: theme.colors.surface, borderRadius: 16, padding: 4, marginBottom: 20 },
+  budgetOption: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 12 },
+  budgetOptionSelected: { backgroundColor: theme.colors.primary },
+  budgetLabel: { fontSize: 16, fontWeight: 'bold', color: theme.colors.textPrimary },
+  budgetLabelSelected: { color: '#FFFFFF' },
+  
+  intensityContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
+  intensityOption: { width: '48%', backgroundColor: theme.colors.surface, borderRadius: 16, padding: 16, alignItems: 'center', justifyContent: 'center' },
+  intensityOptionSelected: { backgroundColor: theme.colors.primary },
+  intensityIcon: { fontSize: 20, marginBottom: 4 },
+  intensityLabel: { fontSize: 9, fontWeight: '900', color: theme.colors.textPrimary, letterSpacing: 1 },
+  intensityLabelSelected: { color: '#FFFFFF' },
+
+  sheetFooter: { paddingHorizontal: 24, paddingVertical: 16, borderTopWidth: 1, borderTopColor: theme.colors.border },
+  calculateButton: { backgroundColor: theme.colors.primary, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', elevation: 4 },
+  buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', letterSpacing: 2 },
+  
+  calculatingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.98)', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  calculatingTitle: { color: theme.colors.textPrimary, fontSize: 24, fontWeight: '900', marginTop: 32 },
+  calculatingSubtitle: { color: theme.colors.textSecondary, fontSize: 16, textAlign: 'center', marginTop: 12, paddingHorizontal: 40 },
+
+  locateButton: {
     position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginLeft: -20,
-    marginTop: -40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  searchOverlay: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    right: 16,
-    zIndex: 10,
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    right: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 12,
-    height: 50,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  mapSearchInput: {
-    flex: 1,
-    height: '100%',
-    paddingHorizontal: 12,
-    fontSize: 16,
-    color: theme.colors.textPrimary,
-  },
-  surpriseButton: {
-    padding: 12,
-    borderLeftWidth: 1,
-    borderLeftColor: theme.colors.border,
-    minWidth: 48,
-    alignItems: 'center',
-  },
-  suggestionsList: {
-    marginTop: 8,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    maxHeight: 200,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  suggestionItem: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  suggestionText: {
-    fontSize: 14,
-    color: theme.colors.textPrimary,
-  },
-  scrollContent: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.xl,
-  },
-  section: {
-    marginBottom: theme.spacing.xl,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: theme.spacing.md,
-  },
-  sectionTitle: {
-    color: theme.colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  radiusValue: {
-    color: theme.colors.primary,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  slider: {
-    width: '100%',
-    height: 40,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.spacing.md,
-    marginTop: theme.spacing.md,
-  },
-  optionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.spacing.md,
-    marginTop: theme.spacing.md,
-    marginBottom: theme.spacing.xl,
-  },
-  card: {
-    width: '30%',
-    aspectRatio: 1,
-    backgroundColor: theme.colors.surface,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 8,
-    elevation: 2,
-  },
-  cardSelected: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.surfaceElevated,
-  },
-  cardIcon: {
-    fontSize: 24,
-    marginBottom: 8,
-  },
-  cardLabel: {
-    color: theme.colors.textSecondary,
-    fontSize: 10,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  cardLabelSelected: {
-    color: theme.colors.primary,
-  },
-  budgetContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: theme.colors.surface,
-    borderRadius: 16,
-    padding: 4,
-    marginTop: theme.spacing.md,
-    marginBottom: theme.spacing.xl,
-  },
-  budgetOption: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderRadius: 12,
-  },
-  budgetOptionSelected: {
-    backgroundColor: theme.colors.primary,
-  },
-  budgetLabel: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: theme.colors.textPrimary,
-  },
-  budgetLabelSelected: {
-    color: '#FFFFFF',
-  },
-  budgetDesc: {
-    fontSize: 8,
-    fontWeight: 'bold',
-    color: theme.colors.textSecondary,
-    marginTop: 2,
-  },
-  budgetDescSelected: {
-    color: '#FFFFFF',
-    opacity: 0.8,
-  },
-  footer: {
-    padding: theme.spacing.lg,
-    backgroundColor: theme.colors.background,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-  },
-  calculateButton: {
-    backgroundColor: theme.colors.primary,
-    height: 60,
-    borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 4,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
 });
 

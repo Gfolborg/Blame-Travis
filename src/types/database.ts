@@ -9,6 +9,65 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      adventure_days: {
+        Row: {
+          adventure_id: string;
+          alternates_json: Json | null;
+          context_json: Json | null;
+          created_at: string;
+          day_number: number;
+          error_message: string | null;
+          hydrated_at: string | null;
+          id: string;
+          itinerary_json: Json | null;
+          outline_json: Json | null;
+          status: string;
+          teaser: string | null;
+          theme_title: string;
+          updated_at: string;
+        };
+        Insert: {
+          adventure_id: string;
+          alternates_json?: Json | null;
+          context_json?: Json | null;
+          created_at?: string;
+          day_number: number;
+          error_message?: string | null;
+          hydrated_at?: string | null;
+          id?: string;
+          itinerary_json?: Json | null;
+          outline_json?: Json | null;
+          status?: string;
+          teaser?: string | null;
+          theme_title: string;
+          updated_at?: string;
+        };
+        Update: {
+          adventure_id?: string;
+          alternates_json?: Json | null;
+          context_json?: Json | null;
+          created_at?: string;
+          day_number?: number;
+          error_message?: string | null;
+          hydrated_at?: string | null;
+          id?: string;
+          itinerary_json?: Json | null;
+          outline_json?: Json | null;
+          status?: string;
+          teaser?: string | null;
+          theme_title?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'adventure_days_adventure_id_fkey';
+            columns: ['adventure_id'];
+            isOneToOne: false;
+            referencedRelation: 'adventures';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       adventures: {
         Row: {
           bonus_goal: string | null;
@@ -76,6 +135,27 @@ export type Database = {
             referencedColumns: ['id'];
           },
         ];
+      };
+      global_hubs: {
+        Row: {
+          id: string;
+          latitude: number;
+          longitude: number;
+          name: string;
+        };
+        Insert: {
+          id?: string;
+          latitude: number;
+          longitude: number;
+          name: string;
+        };
+        Update: {
+          id?: string;
+          latitude?: number;
+          longitude?: number;
+          name?: string;
+        };
+        Relationships: [];
       };
       profiles: {
         Row: {

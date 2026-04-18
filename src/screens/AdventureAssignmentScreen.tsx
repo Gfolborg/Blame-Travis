@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -29,13 +29,7 @@ const AdventureAssignmentScreen: React.FC<Props> = ({ navigation, route }) => {
   const { refreshAdventure } = useAdventure();
   const { showNotice } = useNotice();
 
-  useEffect(() => {
-    if (!adventure) {
-      fetchAdventure();
-    }
-  }, [AdventureId]);
-
-  const fetchAdventure = async () => {
+  const fetchAdventure = useCallback(async (): Promise<Adventure | null> => {
     try {
       const { data, error } = await supabase
         .from('adventures')
@@ -44,13 +38,59 @@ const AdventureAssignmentScreen: React.FC<Props> = ({ navigation, route }) => {
         .single();
 
       if (error) throw error;
-      setAdventure(data as unknown as Adventure);
+      const nextAdventure = data as unknown as Adventure;
+      setAdventure(nextAdventure);
+      return nextAdventure;
     } catch (error) {
       console.error('Error fetching assignment:', error);
+      return null;
     } finally {
       setDataLoading(false);
     }
-  };
+  }, [AdventureId]);
+
+  useEffect(() => {
+    if (!adventure) {
+      fetchAdventure();
+    }
+  }, [adventure, fetchAdventure]);
+
+  useEffect(() => {
+    let isCancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+
+    const pollForHeroImage = async () => {
+      if (isCancelled || adventure?.hero_image_url) {
+        return;
+      }
+
+      try {
+        const updatedAdventure = await fetchAdventure();
+        if (isCancelled || updatedAdventure?.hero_image_url) {
+          return;
+        }
+
+        attempts += 1;
+        if (attempts < 10) {
+          timeoutId = setTimeout(pollForHeroImage, 3000);
+        }
+      } catch (error) {
+        console.error('Error polling for hero image:', error);
+      }
+    };
+
+    if (adventure && !adventure.hero_image_url) {
+      timeoutId = setTimeout(pollForHeroImage, 1500);
+    }
+
+    return () => {
+      isCancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [adventure, fetchAdventure]);
 
   const handleScrap = () => {
     showNotice({
@@ -76,24 +116,31 @@ const AdventureAssignmentScreen: React.FC<Props> = ({ navigation, route }) => {
     });
   };
 
-  // The final screen is only "ready" when data is here AND image is rendered
-  const isFullyReady = !dataLoading && adventure && imageReady;
+  const hasLoadedAdventure = !dataLoading && !!adventure;
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       
       {/* BACKGROUND IMAGE - Always rendering in background, but hidden until ready */}
-      {adventure?.hero_image_url && (
+      {adventure?.hero_image_url ? (
         <Image 
           source={{ uri: adventure.hero_image_url }} 
-          style={[styles.backgroundImage, !isFullyReady && { opacity: 0 }]}
+          style={[styles.backgroundImage, !imageReady && { opacity: 0 }]}
           resizeMode="cover"
           onLoad={() => setImageReady(true)}
         />
+      ) : (
+        /* FALLBACK: Show map texture or dark color while Travis paints */
+        <Image 
+          source={require('../../assets/textures/map-texture.png')}
+          style={styles.backgroundImage}
+          resizeMode="cover"
+          blurRadius={10}
+        />
       )}
       
-      {!isFullyReady ? (
+      {!hasLoadedAdventure ? (
         <View style={styles.loadingContainer}>
           <TravisSignal status="thinking" size={120} />
           <Text style={styles.loadingText}>DEVELOPING THE ITINERARY...</Text>
@@ -101,7 +148,7 @@ const AdventureAssignmentScreen: React.FC<Props> = ({ navigation, route }) => {
         </View>
       ) : (
         <>
-          <View style={styles.imageOverlay} />
+          <View style={[styles.imageOverlay, !imageReady && styles.imageOverlayFallback]} />
           <SafeAreaView style={styles.safeArea}>
             {/* TOP MENU */}
             <View style={styles.header}>
@@ -172,6 +219,9 @@ const styles = StyleSheet.create({
   imageOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  imageOverlayFallback: {
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   safeArea: {
     flex: 1,
