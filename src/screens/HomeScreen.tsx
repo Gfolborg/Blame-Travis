@@ -40,7 +40,8 @@ const HomeScreen = () => {
   });
 
   useEffect(() => {
-    if (!(currentAdventure && currentAdventure.status === 'active' && profile?.is_premium)) {
+    const hasPremiumAccess = profile?.is_premium ?? true;
+    if (!(currentAdventure && currentAdventure.status === 'active' && hasPremiumAccess)) {
       setRerollTimeLeft(0);
       return;
     }
@@ -217,7 +218,7 @@ const HomeScreen = () => {
               activeOpacity={0.9}
               onPress={() => navigation.navigate('AdventureRequest')}
             >
-              <Text style={styles.emptyDeskButtonText}>Draft an itinerary</Text>
+              <Text style={styles.emptyDeskButtonText}>Start your Story Here</Text>
             </TouchableOpacity>
           </View>
         ) : (

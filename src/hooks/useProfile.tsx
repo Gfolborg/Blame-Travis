@@ -53,7 +53,6 @@ export const ProfileProvider: React.FC<{ children: ReactNode }> = ({ children })
           transport_mode: 'driving',
           travis_tone: 'bold',
           budget_default: 2,
-          is_premium: true,
           notifications_enabled: true,
         };
 

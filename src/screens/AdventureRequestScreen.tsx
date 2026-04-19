@@ -223,11 +223,9 @@ const AdventureRequestScreen = () => {
     extrapolate: 'clamp'
   });
 
-  const summaryText = useMemo(() => {
-    const b = BUDGETS.find(o => o.id === budget)?.label || '$$';
-    const i = INTENSITIES.find(o => o.id === intensity)?.label || 'BALANCED';
-    return `${i} • ${b} • ${days} DAY${days > 1 ? 'S' : ''}`;
-  }, [intensity, budget, days]);
+   const summaryText = useMemo(() => {
+     return 'Start Your Story Here';
+   }, []);
 
   const handleMapInteraction = () => {
     Keyboard.dismiss();
@@ -386,7 +384,7 @@ const AdventureRequestScreen = () => {
           <MapView
             ref={mapRef}
             style={styles.map}
-            initialRegion={region}
+            region={region}
             onRegionChangeComplete={handleRegionChangeComplete}
             onPress={handleMapInteraction}
             onPanDrag={handleMapInteraction}
