@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../theme';
 import { ItineraryStop } from '../types/adventure';
@@ -18,8 +18,14 @@ const StopCardComponent: React.FC<StopCardProps> = ({ stop, onPress, renderRight
       onPress={onPress}
       disabled={!onPress}
     >
-      <View style={styles.imagePlaceholder}>
-        <Ionicons name="image-outline" size={32} color={theme.colors.textSecondary} />
+      <View style={styles.imageContainer}>
+        {stop.image_url ? (
+          <Image source={{ uri: stop.image_url }} style={styles.image} />
+        ) : (
+          <View style={styles.imagePlaceholder}>
+            <Ionicons name="image-outline" size={32} color={theme.colors.textSecondary} />
+          </View>
+        )}
       </View>
       <View style={styles.cardDetails}>
         <View style={styles.cardHeader}>
@@ -55,6 +61,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
+  },
+  imageContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 15,
+    overflow: 'hidden',
+  },
+  image: {
+    width: '100%',
+    height: '100%',
   },
   imagePlaceholder: { 
     width: 80, 

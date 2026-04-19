@@ -48,10 +48,10 @@ try {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'AdventureRequest'>;
 
 const INTENSITIES = [
-  { id: 'low', label: 'LOW BATTERY', icon: '🧘', desc: 'Chill & Recover' },
-  { id: 'balanced', label: 'BALANCED', icon: '⚖️', desc: 'Mix of Everything' },
-  { id: 'high', label: 'HIGH OCTANE', icon: '🚀', desc: 'Active & Intense' },
-  { id: 'ruthless', label: 'RUTHLESS', icon: '⚡', desc: 'Travis Style Only' },
+  { id: 'low', label: 'STROLL', icon: '🚶', desc: 'Slow & Steady. Minimum movement.' },
+  { id: 'balanced', label: 'STEADY PACE', icon: '⚖️', desc: 'The sweet spot. A natural city flow.' },
+  { id: 'high', label: 'FAST TRACK', icon: '🚀', desc: 'High energy. We’re covering ground today.' },
+  { id: 'ruthless', label: 'SPRINT', icon: '⚡', desc: 'The gauntlet. Travis-style endurance.' },
 ];
 
 const BUDGETS = [
@@ -184,12 +184,11 @@ const AdventureRequestScreen = () => {
   };
 
   // Itinerary Params
-  const [intensity, setIntensity] = useState('balanced');
-  const [budget, setBudget] = useState('mid');
+  const [intensity, setIntensity] = useState<string | null>(null);
+  const [budget, setBudget] = useState<string | null>(null);
   const [roamingMode, setRoamingMode] = useState<'strict' | 'roam'>('strict');
   const [maxActivities, setMaxActivities] = useState(3);
   const [days, setDays] = useState(3);
-  const [relaxationLevel, setRelaxationLevel] = useState(0);
 
   // Status
   const [isCalculating, setIsCalculating] = useState(false);
@@ -197,9 +196,13 @@ const AdventureRequestScreen = () => {
   const [isSurprising, setIsSurpriseLoading] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
 
+  const isConfigComplete = !!intensity && !!budget;
+
   useEffect(() => {
-    handleResetToCurrentLocation();
-  }, []);
+    if (isMapReady) {
+      handleResetToCurrentLocation();
+    }
+  }, [isMapReady]);
 
   const toggleSheet = () => {
     const nextSnap = currentSnap === 'COLLAPSED' ? 'FULL' : 'COLLAPSED';
@@ -224,7 +227,7 @@ const AdventureRequestScreen = () => {
   });
 
    const summaryText = useMemo(() => {
-     return 'Start Your Story Here';
+     return 'UNFOLD THE STORY';
    }, []);
 
   const handleMapInteraction = () => {
@@ -316,11 +319,10 @@ const AdventureRequestScreen = () => {
         coords: { lat: region.latitude, lng: region.longitude },
         radius: radius,
         days,
-        intensity,
-        budget,
+        intensity: intensity!, // We know these are set because of isConfigComplete
+        budget: budget!,
         roamingMode,
         maxActivities,
-        relaxationLevel,
       });
       navigation.navigate('AdventureAssignment', { 
         AdventureId: adventure.id,
@@ -499,7 +501,10 @@ const AdventureRequestScreen = () => {
               <Slider
                 style={styles.slider}
                 minimumValue={isImperial ? 0.5 : 1}
-                maximumValue={isImperial ? 31.0 : 50}
+                maximumValue={roamingMode === 'roam' 
+                  ? (isImperial ? 62.2 : 100) 
+                  : (isImperial ? 31.0 : 50)
+                }
                 step={isImperial ? 0.5 : 1}
                 value={isImperial ? radius / 1609.34 : radius / 1000}
                 onValueChange={(v) => {
@@ -538,7 +543,7 @@ const AdventureRequestScreen = () => {
               <Slider
                 style={styles.slider}
                 minimumValue={1}
-                maximumValue={6}
+                maximumValue={4}
                 step={1}
                 value={maxActivities}
                 onValueChange={setMaxActivities}
@@ -556,28 +561,10 @@ const AdventureRequestScreen = () => {
               <Slider
                 style={styles.slider}
                 minimumValue={1}
-                maximumValue={30}
+                maximumValue={7}
                 step={1}
                 value={days}
                 onValueChange={setDays}
-                minimumTrackTintColor={theme.colors.primary}
-                maximumTrackTintColor={theme.colors.border}
-                thumbTintColor={theme.colors.primary}
-              />
-            </View>
-
-            <View style={styles.section}>
-              <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitle}>RELAXATION / CHILL</Text>
-                <Text style={styles.radiusValue}>{relaxationLevel}</Text>
-              </View>
-              <Slider
-                style={styles.slider}
-                minimumValue={0}
-                maximumValue={10}
-                step={1}
-                value={relaxationLevel}
-                onValueChange={setRelaxationLevel}
                 minimumTrackTintColor={theme.colors.primary}
                 maximumTrackTintColor={theme.colors.border}
                 thumbTintColor={theme.colors.primary}
@@ -596,22 +583,48 @@ const AdventureRequestScreen = () => {
             <Text style={styles.sectionTitle}>ENERGY LEVEL</Text>
             <View style={styles.intensityContainer}>
               {INTENSITIES.map((opt) => (
-                <TouchableOpacity key={opt.id} style={[styles.intensityOption, intensity === opt.id && styles.intensityOptionSelected]} onPress={() => setIntensity(opt.id)}>
+                <TouchableOpacity 
+                  key={opt.id} 
+                  style={[styles.intensityOption, intensity === opt.id && styles.intensityOptionSelected]} 
+                  onPress={() => setIntensity(opt.id)}
+                >
                   <Text style={styles.intensityIcon}>{opt.icon}</Text>
                   <Text style={[styles.intensityLabel, intensity === opt.id && styles.intensityLabelSelected]}>{opt.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
+            {intensity && (
+              <View style={styles.intensityInfoBox}>
+                <Ionicons name="information-circle-outline" size={16} color={theme.colors.primary} />
+                <Text style={styles.intensityInfoText}>
+                  {INTENSITIES.find(i => i.id === intensity)?.desc}
+                </Text>
+              </View>
+            )}
             <View style={{ height: 40 }} />
           </ScrollView>
         </Animated.View>
 
         <View style={styles.sheetFooter}>
+          {!isConfigComplete && (
+            <Text style={styles.nudgeText}>
+              Travis: "Pick your poison first. I need a budget and energy level before I scout."
+            </Text>
+          )}
           <TouchableOpacity 
-            style={styles.calculateButton}
+            style={[
+              styles.calculateButton, 
+              !isConfigComplete && styles.calculateButtonDisabled
+            ]}
             onPress={handleCalculate}
+            disabled={!isConfigComplete}
           >
-            <Text style={styles.buttonText}>STAMP MY JOURNEY</Text>
+            <Text style={[
+              styles.buttonText,
+              !isConfigComplete && styles.buttonTextDisabled
+            ]}>
+              {isConfigComplete ? 'STAMP MY JOURNEY' : 'LOCKED'}
+            </Text>
           </TouchableOpacity>
         </View>
       </Animated.View>
@@ -688,15 +701,46 @@ const styles = StyleSheet.create({
   intensityIcon: { fontSize: 20, marginBottom: 4 },
   intensityLabel: { fontSize: 9, fontWeight: '900', color: theme.colors.textPrimary, letterSpacing: 1 },
   intensityLabelSelected: { color: '#FFFFFF' },
+  intensityInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(231, 76, 60, 0.05)',
+    padding: 12,
+    borderRadius: 12,
+    marginTop: -10,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(231, 76, 60, 0.1)',
+  },
+  intensityInfoText: {
+    color: theme.colors.textPrimary,
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 8,
+    flex: 1,
+  },
 
   sheetFooter: { paddingHorizontal: 24, paddingVertical: 16, borderTopWidth: 1, borderTopColor: theme.colors.border },
   calculateButton: { backgroundColor: theme.colors.primary, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', elevation: 4 },
   buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', letterSpacing: 2 },
+  buttonTextDisabled: { color: 'rgba(255, 255, 255, 0.5)' },
   
   calculatingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.98)', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
   calculatingTitle: { color: theme.colors.textPrimary, fontSize: 24, fontWeight: '900', marginTop: 32 },
   calculatingSubtitle: { color: theme.colors.textSecondary, fontSize: 16, textAlign: 'center', marginTop: 12, paddingHorizontal: 40 },
 
+  calculateButtonDisabled: {
+    backgroundColor: theme.colors.border,
+    elevation: 0,
+  },
+  nudgeText: {
+    color: theme.colors.primary,
+    fontSize: 12,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 12,
+    fontStyle: 'italic',
+  },
   locateButton: {
     position: 'absolute',
     right: 20,

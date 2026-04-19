@@ -1,7 +1,6 @@
 import { Adventure, AdventureDay, ItineraryStop } from '../types/adventure';
 import { supabase } from './supabase';
 import { travisService } from './travis';
-import { weatherService } from './weather';
 import { fetchAdventureById, getCurrentTripDay } from './adventureData';
 
 export interface DiscoveryParams {
@@ -12,12 +11,13 @@ export interface DiscoveryParams {
   budget: string;
   roamingMode: 'strict' | 'roam';
   maxActivities: number;
-  relaxationLevel: number;
+  relaxationLevel?: number;
 }
 
 interface BlueprintSlot {
   name: string;
   type?: string;
+  fsq_id?: string;
   dwell_minutes?: number;
 }
 
@@ -50,19 +50,8 @@ const uniqueByPlaceId = (stops: ItineraryStop[]) => {
   });
 };
 
-const buildAlternateStop = (place: any, dayNumber: number, order: number): ItineraryStop => ({
-  place_id: place.id,
-  name: place.displayName?.text || 'Alternate Stop',
-  lat: Number(place.location?.latitude || 0),
-  lng: Number(place.location?.longitude || 0),
-  rating: place.rating,
-  category: String(place.primaryType || 'establishment').toUpperCase(),
-  day: dayNumber,
-  day_number: dayNumber,
-  order,
-  estimated_dwell_minutes: 90,
-  estimated_spend: 0,
-});
+const hasPlaceId = (value: unknown): value is { place_id?: string } =>
+  typeof value === 'object' && value !== null && 'place_id' in value;
 
 const extractSearchResults = async (params: {
   coords: { lat: number; lng: number };
@@ -99,39 +88,65 @@ const hydrateDayFromOutline = async (params: {
 
   for (let index = 0; index < params.slots.length; index += 1) {
     const slot = params.slots[index];
-    const searchResults = await extractSearchResults({
-      coords: params.context.coords,
-      radius: params.context.radius,
-      query: `${slot.name} in ${params.context.location}`,
-    });
+    let richData: any = null;
 
-    const primary = searchResults.find((place: any) => !params.usedPlaceIds.has(place.id));
-    if (!primary) {
-      continue;
+    // OPTION 1: ID-FIRST HYDRATION (PREFERRED)
+    if (slot.fsq_id) {
+      console.log(`[HYDRATE] Fetching rich details for: ${slot.name} (${slot.fsq_id})`);
+      const isGoogleId = !slot.fsq_id.includes('-'); // Foursquare IDs are usually hex-hyphen-hex
+      
+      const { data } = await supabase.functions.invoke('discover-places', {
+        body: {
+          action: isGoogleId ? 'get-place-details' : 'get-foursquare-details',
+          payload: { fsq_id: slot.fsq_id, placeId: slot.fsq_id }
+        }
+      });
+      richData = data;
     }
 
-    params.usedPlaceIds.add(primary.id);
+    // OPTION 2: SEARCH FALLBACK
+    if (!richData) {
+      const searchResults = await extractSearchResults({
+        coords: params.context.coords,
+        radius: params.context.radius,
+        query: `${slot.name} in ${params.context.location}`,
+      });
+      richData = searchResults.find((place: any) => !params.usedPlaceIds.has(place.id));
+    }
+
+    if (!richData) continue;
+
+    const placeId = richData.id || richData.fsq_id;
+    params.usedPlaceIds.add(placeId);
+
+    // Format Image URL (Handle FS vs Google formats)
+    let imageUrl = '';
+    if (richData.photos?.[0]) {
+      const p = richData.photos[0];
+      if (p.prefix && p.suffix) {
+        // Foursquare format
+        imageUrl = `${p.prefix}original${p.suffix}`;
+      } else if (p.name) {
+        // Google Places V1 format (e.g. places/ChIJ.../photos/AUis...)
+        imageUrl = `https://places.googleapis.com/v1/${p.name}/media?key=${GOOGLE_MAPS_API_KEY}&maxWidthPx=400`;
+      }
+    }
 
     verifiedStops.push({
-      place_id: primary.id,
-      name: primary.displayName?.text || slot.name,
-      lat: Number(primary.location?.latitude || params.context.coords.lat),
-      lng: Number(primary.location?.longitude || params.context.coords.lng),
-      rating: primary.rating,
-      category: String(primary.primaryType || slot.type || 'establishment').toUpperCase(),
+      place_id: placeId,
+      name: richData.displayName?.text || richData.name || slot.name,
+      lat: Number(richData.location?.latitude || richData.geocodes?.main?.latitude || params.context.coords.lat),
+      lng: Number(richData.location?.longitude || richData.geocodes?.main?.longitude || params.context.coords.lng),
+      rating: richData.rating ? (richData.rating > 5 ? richData.rating / 2 : richData.rating) : 4.0,
+      category: String(richData.primaryType || richData.categories?.[0]?.name || slot.type || 'establishment').toUpperCase(),
       day: params.dayNumber,
       day_number: params.dayNumber,
       order: index + 1,
       estimated_dwell_minutes: slot.dwell_minutes || 120,
       estimated_spend: 0,
+      image_url: imageUrl,
+      price_level: richData.price ? '$'.repeat(richData.price) : (richData.priceLevel === 'PRICE_LEVEL_INEXPENSIVE' ? '$' : richData.priceLevel === 'PRICE_LEVEL_EXPENSIVE' ? '$$$' : '$$'),
     });
-
-    for (const candidate of searchResults) {
-      if (alternates.length >= 3) break;
-      if (!candidate?.id || params.usedPlaceIds.has(candidate.id) || candidate.id === primary.id) continue;
-      params.usedPlaceIds.add(candidate.id);
-      alternates.push(buildAlternateStop(candidate, params.dayNumber, alternates.length + 1));
-    }
   }
 
   if (!verifiedStops.length) {
@@ -294,6 +309,168 @@ export const discoveryService = {
     );
   },
 
+  async searchNearbyFood(coords: { lat: number; lng: number }, radius: number = 2000): Promise<ItineraryStop[]> {
+    console.log(`[DISCOVERY] Searching for food near ${coords.lat}, ${coords.lng} using Foursquare...`);
+    
+    try {
+      const { data } = await supabase.functions.invoke('discover-places', {
+        body: {
+          action: 'search-food-foursquare',
+          payload: { coords, radius, query: 'restaurants, cafes' },
+        },
+      });
+
+      const results = data?.results || [];
+      
+      // FALLBACK: If Foursquare returns nothing (very remote or overseas gap), try Google
+      if (results.length === 0) {
+        console.log('[DISCOVERY] Foursquare returned zero results. Engaging Google Fallback...');
+        const googleData = await extractSearchResults({
+          coords,
+          radius: 5000,
+          query: 'restaurants and cafes near me',
+        });
+
+        return googleData.map((p: any, idx: number) => ({
+          place_id: p.id,
+          name: p.displayName?.text || 'Local Spot',
+          lat: p.location?.latitude || coords.lat,
+          lng: p.location?.longitude || coords.lng,
+          rating: p.rating || 4.0,
+          category: 'FOOD',
+          day_number: 1,
+          order: idx + 1,
+          estimated_dwell_minutes: 60,
+          why_travis_picked_this: "I had to check the satellites, but this spot looks reliable.",
+        }));
+      }
+
+      return results.map((r: any, idx: number) => {
+        let imageUrl = '';
+        if (r.photos?.[0]) {
+          const photo = r.photos[0];
+          if (photo.prefix && photo.suffix) {
+            imageUrl = `${photo.prefix}original${photo.suffix}`;
+          } else if (photo.name) {
+            imageUrl = `https://places.googleapis.com/v1/${photo.name}/media?key=${GOOGLE_MAPS_API_KEY}&maxWidthPx=400`;
+          }
+        }
+        const priceString = r.price ? '$'.repeat(r.price) : '$$';
+
+        return {
+          place_id: r.fsq_id,
+          name: r.name,
+          lat: r.geocodes?.main?.latitude || coords.lat,
+          lng: r.geocodes?.main?.longitude || coords.lng,
+          rating: r.rating ? r.rating / 2 : 4.0,
+          category: (r.categories?.[0]?.name || 'FOOD').toUpperCase(),
+          day_number: 1,
+          order: idx + 1,
+          estimated_dwell_minutes: 60,
+          image_url: imageUrl,
+          price_level: priceString,
+          why_travis_picked_this: "I noticed you were looking a bit peckish. This spot is solid.",
+        };
+      });
+    } catch (e) {
+      console.error('[DISCOVERY] Search failed:', e);
+      return [];
+    }
+  },
+
+  async injectStopIntoItinerary(adventureId: string, stop: ItineraryStop): Promise<boolean> {
+    try {
+      // 1. Update master adventure itinerary (legacy compatibility/flat view)
+      const { data: adventure } = await supabase
+        .from('adventures')
+        .select('itinerary_json')
+        .eq('id', adventureId)
+        .single();
+
+      if (!adventure) return false;
+
+      const currentItinerary = Array.isArray(adventure.itinerary_json) ? adventure.itinerary_json : [];
+      const updatedItinerary = [...currentItinerary, { ...stop, order: currentItinerary.length + 1 }];
+
+      const { error: masterError } = await supabase
+        .from('adventures')
+        .update({ itinerary_json: updatedItinerary as any })
+        .eq('id', adventureId);
+
+      if (masterError) throw masterError;
+
+      // 2. Update specific day in adventure_days (Desk view source of truth)
+      // For now, we'll assume we are adding to the currently active day or Day 1 if ambiguous
+      const { data: dayData } = await supabase
+        .from('adventure_days')
+        .select('itinerary_json')
+        .eq('adventure_id', adventureId)
+        .eq('day_number', stop.day_number || 1)
+        .single();
+
+      if (dayData) {
+        const dayItinerary = Array.isArray(dayData.itinerary_json) ? dayData.itinerary_json : [];
+        const updatedDayItinerary = [...dayItinerary, { ...stop, order: dayItinerary.length + 1 }];
+        
+        await supabase
+          .from('adventure_days')
+          .update({ itinerary_json: updatedDayItinerary as any })
+          .eq('adventure_id', adventureId)
+          .eq('day_number', stop.day_number || 1);
+      }
+
+      return true;
+    } catch (e) {
+      console.error('[DISCOVERY] Failed to inject stop:', e);
+      return false;
+    }
+  },
+
+  async removeStopFromItinerary(adventureId: string, stopId: string, dayNumber: number): Promise<boolean> {
+    try {
+      // 1. Update master adventure itinerary
+      const { data: adventure } = await supabase
+        .from('adventures')
+        .select('itinerary_json')
+        .eq('id', adventureId)
+        .single();
+
+      if (adventure) {
+        const currentItinerary = Array.isArray(adventure.itinerary_json) ? adventure.itinerary_json : [];
+        const updatedItinerary = currentItinerary.filter(item => !hasPlaceId(item) || item.place_id !== stopId);
+        
+        await supabase
+          .from('adventures')
+          .update({ itinerary_json: updatedItinerary as any })
+          .eq('id', adventureId);
+      }
+
+      // 2. Update individual day
+      const { data: dayData } = await supabase
+        .from('adventure_days')
+        .select('itinerary_json')
+        .eq('adventure_id', adventureId)
+        .eq('day_number', dayNumber)
+        .single();
+
+      if (dayData) {
+        const dayItinerary = Array.isArray(dayData.itinerary_json) ? dayData.itinerary_json : [];
+        const updatedDayItinerary = dayItinerary.filter(item => !hasPlaceId(item) || item.place_id !== stopId);
+        
+        await supabase
+          .from('adventure_days')
+          .update({ itinerary_json: updatedDayItinerary as any })
+          .eq('adventure_id', adventureId)
+          .eq('day_number', dayNumber);
+      }
+
+      return true;
+    } catch (e) {
+      console.error('[DISCOVERY] Failed to remove stop:', e);
+      return false;
+    }
+  },
+
   async hydrateAdventureDays(adventureId: string, dayNumbers: number[]): Promise<Adventure | null> {
     const uniqueDays = Array.from(new Set(dayNumbers)).sort((a, b) => a - b);
     if (!uniqueDays.length) return fetchAdventureById(adventureId);
@@ -388,39 +565,70 @@ export const discoveryService = {
     } = await supabase.auth.getUser();
     const userId = user?.id || GUEST_ID;
 
-    console.log('--- STARTING TRI-STAGE DISCOVERY PIPELINE ---');
+    console.log('--- [V2.1] TRI-STAGE DISCOVERY PIPELINE ---');
     const totalDays = params.days;
     const initialCity = await this.reverseGeocode(params.coords.lat, params.coords.lng);
-
-    let weatherSummary = 'Unknown';
-    try {
-      const forecast = await weatherService.getDailyForecast(params.coords.lat, params.coords.lng);
-      weatherSummary = forecast?.[0]?.weatherCondition?.description?.text || 'Clear';
-    } catch (e) {
-      console.warn('Weather lookup skipped:', e);
-    }
 
     console.log('[STAGE 1] Travis Strategist is brainstorming...');
     const { searchQueries } = await supabase.functions
       .invoke('travis-narrative', {
-        body: { action: 'generate-strategy', ...params, location: initialCity, weather: weatherSummary },
+        body: { 
+          action: 'generate-strategy', 
+          location: initialCity 
+        },
       })
       .then(res => res.data);
 
-    console.log(`[STAGE 2] Scouting ${searchQueries.length} vibes via Foursquare...`);
+    console.log('[STAGE 1] Search Strategy (Raw):', JSON.stringify(searchQueries));
+
+    // HARD GUARDRAIL: PRODUCTION-GRADE SANITIZATION (V2.2 - NOUN-FIRST)
+    const BANNED_WORDS = [
+      'cafe', 'restaurant', 'food', 'brunch', 'bakery', 'kitchen', 'grill', 'bistro', 'dining', 'bar', 'coffee', 'tea',
+      'historic', 'vintage', 'artsy', 'cozy', 'hidden', 'local', 'independent', 'boutique', 'seaside', 'coastal', 'g Gulf',
+      'gilded', 'age', 'mansion', 'tour', 'stroll', 'crawl', 'viewpoint', 'spot', 'district', 'heritage'
+    ];
+    
+    const cleanedQueries: Array<{ label: string; confidence: string }> = (searchQueries || [])
+      .slice(0, 7)
+      .map((q: any): { label: string; confidence: string } => {
+        const rawLabel = typeof q === 'string' ? q : q.label;
+        const confidence = String(q.confidence || 'medium');
+        
+        // 1. Scrub commas and split
+        const words = rawLabel.replace(/,/g, '').split(' ');
+        
+        // 2. Filter out AI Fluff and Food
+        const filtered = words.filter((word: string) => !BANNED_WORDS.includes(word.toLowerCase()));
+        
+        // 3. NOUN-FIRST: Take the LAST 2 words (usually the actual category)
+        const label = filtered.slice(-2).join(' ');
+        const finalLabel = label.length > 2 ? label : `Landmark`;
+        
+        return { label: finalLabel, confidence };
+      });
+
+    console.log(
+      '[STAGE 1] Search Strategy (Cleaned):',
+      cleanedQueries.map((q: { label: string; confidence: string }) => `${q.label} (${q.confidence})`).join(', ')
+    );
+
+    console.log(`[STAGE 2] Scouting all ${cleanedQueries.length} categories via single Edge Batch...`);
     const candidatePool: any[] = [];
     const usedFsIds = new Set<string>();
 
-    const scoutRequests = searchQueries.map((query: string) =>
-      supabase.functions.invoke('discover-places', {
-        body: { action: 'curate-foursquare', payload: { coords: params.coords, radius: params.radius, query } },
-      })
-    );
+    const { data: batchData } = await supabase.functions.invoke('discover-places', {
+      body: { 
+        action: 'curate-foursquare', 
+        payload: { 
+          coords: params.coords, 
+          radius: params.radius, 
+          queries: cleanedQueries.map((q: { label: string }) => q.label)
+        } 
+      },
+    });
 
-    const scoutResults = await Promise.all(scoutRequests);
-    for (const { data } of scoutResults) {
-      if (!data?.results) continue;
-      data.results.forEach((result: any) => {
+    if (batchData?.results) {
+      batchData.results.forEach((result: any) => {
         if (usedFsIds.has(result.fsq_id)) return;
         candidatePool.push({
           name: result.name,
@@ -467,7 +675,13 @@ export const discoveryService = {
     console.log(`[STAGE 3] Travis Editor is curating ${candidatePool.length} candidates...`);
     const { blueprint } = await supabase.functions
       .invoke('travis-narrative', {
-        body: { action: 'select-and-sequence', ...params, location: initialCity, candidates: candidatePool.slice(0, 50) },
+        body: { 
+          action: 'select-and-sequence', 
+          ...params, 
+          location: initialCity, 
+          candidates: candidatePool.slice(0, 40),
+          maxActivities: params.maxActivities
+        },
       })
       .then(res => res.data);
 

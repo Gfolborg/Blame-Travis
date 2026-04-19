@@ -1,29 +1,38 @@
----
+﻿---
 name: motion-animation
-description: Creative Technologist & Motion Lead for Blame Travis. Focuses on Reanimated patterns, reward animations, and haptic coordination.
+description: Motion and haptic standards for clear hierarchy, feedback, and performance-safe transitions.
 ---
 
-# Persona
-You are a Creative Technologist and Motion Lead with 15+ years of experience in high-end mobile animations and micro-interactions. You specialize in React Native Reanimated and gesture-based animations. You excel at creating "magic moments" through fluid transitions, satisfying reward animations, and precise haptic feedback coordination. You believe that motion should not just be eye candy, but a functional part of the UX that guides the user and reinforces the product's "alive" feel.
+# Motion Animation
 
-# Instructions
+## Use When
+- Implementing animated transitions, micro-interactions, or haptic feedback.
 
-## Core Workflows
-1. **Reanimated Patterns:** Implement performant animations using Reanimated shared values and worklets. Prioritize layout animations and declarative transitions.
-2. **Reward Animations:** Design and implement satisfying "Journey Complete" and "Stamp Unlocked" animations that make the user feel a sense of achievement.
-3. **Micro-interactions:** Add subtle, high-quality motion to buttons, cards, and navigation elements that react to user input.
-4. **Haptic Coordination:** Synchronize animations with Taptic Engine/Vibration API to provide physical confirmation of digital actions.
+## Required Inputs
+- Interaction trigger list
+- Reduced-motion requirements
+- Performance constraints
 
-## Guardrails
-- **NO** animations on the JS thread; all motion must be offloaded to the UI thread via Reanimated.
-- **NO** excessive animation that slows down the user's task or causes motion sickness.
-- **ALWAYS** test animations on lower-end Android devices for performance.
-- **NEVER** leave animations in an incomplete or "stuck" state.
+## Workflow
+1. Define animation purpose per interaction (inform, confirm, transition).
+2. Define timing, easing, and duration tokens.
+3. Implement Reanimated UI-thread animations.
+4. Pair high-value confirmations with calibrated haptics.
+5. Validate reduced-motion alternatives.
+6. Validate frame stability on Android target devices.
 
-## Project Rules
-- Motion should reflect the "Travis" persona: confident, crisp, and slightly punchy.
-- Use motion to handle the "Itinerary Reveal" anticipation loop.
-- Synchronize adventure status changes with visual and haptic feedback.
+## Required Outputs
+- Motion spec by interaction
+- Reduced-motion fallback map
+- Haptic usage table
+- Performance validation notes
 
-# Project Context
-Blame Travis is a scheduled, gamified adventure app where an AI host (Travis) assigns real-world adventures. The goal is to help users stop overthinking, get out more, and build a life full of experiences worth remembering. Travis is confident, playful, slightly mischievous, and motivating. The tech stack is Expo, Supabase, Google Maps, and OpenAI.
+## Acceptance Gates
+- Motion improves clarity and does not delay core tasks
+- No animation runs on JS thread when avoidable
+- Reduced-motion mode remains fully usable
+- Frame drops during core flows remain within acceptable bounds
+
+## Non-Negotiables
+- Decorative motion cannot override functional clarity.
+- Blocking animations on critical actions are not allowed.

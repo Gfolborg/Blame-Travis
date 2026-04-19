@@ -1,71 +1,111 @@
-# Blame Travis — Product README
+﻿# Blame Travis - Product README
 
 ## Overview
 
-**Blame Travis** is your personal, slightly sarcastic, on-demand adventure architect. Instead of browsing endless options or following a generic travel guide, you tell Travis what you're in the mood for, and he puts together a custom, one-of-a-kind adventure.
+**Blame Travis** is a things-to-do search travel app with personality.
 
-The emotional core of the product is simple:
-> You want to get out more, but don't want to plan.
-> **Travis** makes the plan. You go live it.
+Travelers tell Travis where they are going (or use near me), choose what they are in the mood for, and get ranked activities they can save into a day-by-day itinerary and book in-app.
 
 Brand line:
 **Travis Made Me Do It.**
 
----
+## Product Direction
 
-## The "On-Demand" Concept
+The app now centers on activity discovery and conversion, not just pre-assigned surprises.
 
-Blame Travis is a **Pocket Adventure Tool**. It is not a passive random generator; it is a guided planning system built on commitment and well-timed nudges.
+Blame Travis must answer three questions quickly:
+1. What can I do here?
+2. What fits me right now?
+3. What should I book or save first?
 
-### The Planning Flow
-1. **The Plan Setup:** The user tells Travis the scope (Current Location, Specific City, or Worldwide), the vibe (Beach, Mountains, Nightlife, etc.), the duration (Day Trip, Weekend, 1+ Week), and the budget.
-2. **The Build:** Travis creates a custom itinerary including a main goal, bonus goals, and "The Rundown" (helpful context via Google Places API).
-3. **The Stamp:** The user reviews the itinerary and **selects a date** for the adventure.
-4. **The Nudges:** Once the date is set, Travis sends reminders and encouragement so the plan actually happens.
+## Core Experience Loop
 
----
+1. **Search**: destination, keyword, category, or near-me input.
+2. **Refine**: fast filters for budget, duration, interest, rating, availability, group fit, and accessibility.
+3. **Discover**: visual cards, map toggle, and social proof.
+4. **Save**: user favorites activities into an itinerary draft.
+5. **Plan**: Travis assembles and explains the ranked day plan.
+6. **Book**: user books in-app when supplier inventory supports it.
+7. **Complete + Return**: reminders, stamps, and personalized follow-up suggestions.
 
-## The Role of Travis
+## Explore Screen Blueprint
 
-**Travis** is the personality of the product. He is confident, playful, adventurous, lightly sarcastic, and genuinely trying to get you out into the world.
+The default browse surface should include:
+1. Search bar
+2. Featured destinations
+3. Category chips
+4. Top Picks for [City]
+5. Curated collections
+6. Hidden gems/community picks
+7. List-map toggle
 
-- **Visual Presence:** Travis is a recurring character throughout the app, showing up where guidance, commentary, or encouragement adds energy to the experience.
-- **Voice:** He reacts to your choices, has opinions, teases a little, and keeps things moving without sounding punitive.
+## Search and Filter Rules
 
----
+- MVP supports text search + category browsing first.
+- Keep filters high-impact and mobile-fast.
+- Limit users to 3 selections per filter group to reduce zero-result dead ends.
+- Prioritize filters that convert:
+  - price
+  - duration
+  - category
+  - date/availability
+  - rating
+  - group type
+  - accessibility
 
-## Reroll & Premium Features
+## Data and AI Architecture
 
-To keep the experience feeling curated rather than endless, rerolls are governed by Travis:
+### Discovery and Booking Data
 
-### Freemium Users
-- **1 Full Reroll per Day:** Refreshes the full itinerary.
-- **24-Hour Cooldown:** After the reroll is used, you wait until tomorrow for another full refresh.
+- **POI discovery layer**: Google Places API first (optional Foursquare expansion).
+- **Bookable activity layer**: Viator first, with future optional expansion to GetYourGuide/Amadeus.
+- **Hybrid strategy**: broad discovery plus bookable depth in the same destination flow.
 
-### Paid Users
-- **3 Full Rerolls per Day:** Travis gets increasingly opinionated as you keep changing your mind.
-- **Section Swaps:** Within the first 5 minutes of accepting an itinerary, paid users can swap out specific parts (e.g., swapping a winery for a museum).
-- **24-Hour Cooldown:** After 3 rerolls, full refreshes are unavailable until the next day.
+### Personalization Stack
 
----
+- **Phase 1**: rules-based ranking from onboarding preferences and simple behavior signals.
+- **Phase 2**: LLM ranking/explanations for "Top picks for you" and itinerary assembly.
+- **Phase 3**: collaborative filtering from saved/booked/completed behavior.
 
-## Validation (The Passport)
+### Behavior Signals to Track
 
-To earn your "Stamp," you need to show that you actually went:
-1. **GPS Check-in:** A proximity-locked "Check-in" button at the destination.
-2. **Photo Proof:** A photo upload that completes the achievement.
+- searched destinations
+- tapped/skipped categories
+- saved activities
+- detail-page dwell time
+- bookings/completions
 
----
+## Travis Role
 
-## UI / UX Philosophy: "The Explorer's Map"
+Travis remains the host voice and recommendation narrator.
 
-The app avoids standard mobile design in favor of a **Vintage Adventure Card** aesthetic.
-- **Aesthetic:** Paper (`#F4EFE6`) background, Ink (`#1C1C1E`) text, and Vintage Red (`#B71C1C`) accents.
-- **Navigation:** The Desk (Home), Journeys, Passport, and Profile.
+- Structured data APIs are the source of truth for logistics, availability, and location facts.
+- LLM output is for framing, ranking explanation, tone, and itinerary storytelling.
+- Travis copy is confident, adventurous, lightly sarcastic, and motivating.
 
----
+## UX and Design Direction
 
-## One-Sentence Product Summary
+- Keep the **Explorer's Map** visual system:
+  - parchment backgrounds
+  - ink-black text
+  - vintage red accents
+- Use visual-first activity cards with clear hero image, price, duration, rating, and save action.
+- Avoid native `Alert.alert` product messaging; use in-app notice components.
+- Prioritize Android-first smoothness and map/list performance.
 
-**Blame Travis is a pocket adventure architect that creates custom itineraries around your mood, handles the reminders, and uses Travis's adventurous, sarcastic personality to help you actually leave the house.**
+## Monetization Direction
 
+1. Booking commission (primary early model)
+2. Featured placement for activity providers
+3. Premium itinerary and advanced personalization tier
+4. Optional subscription for offline + advanced filters
+
+## Out of Scope (for now)
+
+- Building a generic OTA for flights/hotels before activity discovery quality is strong
+- Overloading MVP with long-tail filters
+- Shipping AI-only planning without grounded place/activity inventory
+
+## One-Sentence Summary
+
+**Blame Travis helps travelers find, rank, save, and book the best things to do with a fast search UX, grounded travel data, and Travis-led personality.**

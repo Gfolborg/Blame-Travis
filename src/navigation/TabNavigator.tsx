@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { MainTabParamList } from '../types/navigation';
@@ -8,10 +8,13 @@ import JourneysScreen from '../screens/JourneysScreen';
 import PassportScreen from '../screens/PassportScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import { theme } from '../theme';
+import { isFeatureEnabled } from '../config/featureFlags';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 export const TabNavigator = () => {
+  const exploreEnabled = isFeatureEnabled('explore_search_v1_enabled');
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -28,7 +31,7 @@ export const TabNavigator = () => {
 
           switch (route.name) {
             case 'Home':
-              iconName = focused ? 'journal' : 'journal-outline';
+              iconName = exploreEnabled ? (focused ? 'compass' : 'compass-outline') : (focused ? 'journal' : 'journal-outline');
               break;
             case 'Journeys':
               iconName = focused ? 'map' : 'map-outline';
@@ -56,7 +59,11 @@ export const TabNavigator = () => {
         },
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} options={{ tabBarLabel: 'The Desk' }} />
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{ tabBarLabel: exploreEnabled ? 'Explore' : 'The Desk' }}
+      />
 
       <Tab.Screen name="Journeys" component={JourneysScreen} />
       <Tab.Screen name="Passport" component={PassportScreen} />

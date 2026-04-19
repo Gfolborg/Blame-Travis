@@ -20,6 +20,8 @@ export interface ItineraryStop {
   estimated_dwell_minutes?: number;
   estimated_spend?: number;
   why_travis_picked_this?: string;
+  image_url?: string;
+  price_level?: string;
 }
 
 export interface AdventureDay {

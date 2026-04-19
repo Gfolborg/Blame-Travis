@@ -8,7 +8,7 @@ const corsHeaders = {
 }
 
 async function callAI(messages: any[], response_format: any) {
-  const models = ['openai/gpt-5.4-mini', 'google/gemini-2.5-flash', 'openai/gpt-4o-mini'];
+  const models = ['openai/gpt-4o-mini', 'google/gemini-2.0-flash-001', 'anthropic/claude-3-haiku'];
   let lastError = null;
 
   for (const model of models) {
@@ -305,38 +305,115 @@ serve(async (req) => {
 
     // 2. THE STRATEGIST: GENERATE SEARCH STRATEGY
     if (action === 'generate-strategy') {
-      const { days, intensity, location, weather, budget, relaxationLevel, radius, searchFlexibility } = body;
-      console.log(`[EDGE] Strategist brainstorming for ${days} days in ${location}. Flexibility: ${searchFlexibility || 0}`);
+      const { location, intensity } = body;
+      console.log(`[EDGE] Strategist engaging Deterministic Taxonomy Mode for: ${location}. Energy: ${intensity}`);
 
       try {
         const aiResult = await callAI([
           {
             role: 'system',
-            content: `You are Travis, the "Creative Strategist." Your job is to brainstorm a list of highly effective search phrases for a user in ${location}.
-            
-            USER CONTEXT:
-            - Destination: ${location}
-            - Energy: ${intensity}
-            - Budget: ${budget}
-            - Weather: ${weather || 'unknown'}
-            - User Relaxation: ${relaxationLevel} / 10
-            
-            TASK:
-            Generate 12-15 unique search phrases that a real human traveler would type into a search engine to find the best spots in ${location}.
-            
-            SEARCH PHILOSOPHY (NATURAL CONSUMER PHRASING):
-            - THINK LIKE A HUMAN: Use high-intent search terms that trigger the best real-world results. 
-            - PHRASING EXAMPLES: "Best [place] in ${location}", "Most popular [place] in ${location}", "Top rated [place] near ${location}".
-            - ADAPT TO ENERGY: 
-                * Low Battery: Search for "quiet parks", "best spas", "peaceful libraries", "cozy bookstores", "scenic relaxing walks".
-                * Ruthless: Search for "best high-energy nightclubs", "most difficult hiking trails", "popular sports stadiums", "top rated adrenaline activities".
-            - ADAPT TO WEATHER: If raining, favor "indoor", "covered", "museums", "galleries", "shopping arcade".
-            - LOCATION ANCHOR: Every single query MUST naturally include the destination name "${location}".
-            
-            JSON OUTPUT FORMAT:
-            {
-              "searchQueries": ["phrase 1", "phrase 2", ...]
-            }`
+            content: `TECHNICAL DETERMINISTIC PARSER MODE: You are a technical GIS category classifier. Ignore all personality. Follow the rules in the user message exactly.`
+          },
+          {
+            role: 'user',
+            content: `
+<SYSTEM_ROLE>
+You are a deterministic Foursquare taxonomy label generator.
+You are performing controlled classification, not brainstorming, recommendation, or natural-language search expansion.
+Ignore all personality, travel, editorial, descriptive, or conversational instructions for this step.
+</SYSTEM_ROLE>
+
+<OBJECTIVE>
+Return exactly 7 canonical place-category labels for tourist attractions in ${location} that match an energy level of "${intensity}".
+These labels must be optimized for downstream mapping to Foursquare categories.
+Return only valid JSON.
+</OBJECTIVE>
+
+<CONTEXT>
+- Energy Level: ${intensity} (Scale: Stroll -> Steady Pace -> Fast Track -> Sprint)
+- Adjust category choice based on energy: "Stroll" favors parks/gardens/museums; "Sprint" favors clubs/nightlife/hiking/active spots.
+</CONTEXT>
+
+<ABSOLUTE_RULES>
+1. EXACTLY 7 ITEMS.
+2. EACH ITEM MUST BE 1 TO 3 WORDS.
+3. EACH ITEM MUST BE A CATEGORY LABEL, NOT A DESCRIPTION.
+4. NO FOOD OR DRINK VENUES.
+5. NO ADJECTIVES.
+6. NO LOCATION MODIFIERS.
+7. NO PREPOSITIONAL PHRASES.
+8. NO SPECIFIC VENUES.
+9. NO EXPLANATIONS.
+</ABSOLUTE_RULES>
+
+<INVALID_SHAPES>
+Reject any candidate containing:
+- more than 3 words
+- words like: historic, local, hidden, cozy, quiet, scenic, beautiful, famous, authentic, trendy, moody, restorative, artisan, vintage, independent
+- food/drink terms like: cafe, coffee, cocktail, bar, lounge, roastery, seafood, restaurant, tea room, bakery, ice cream
+- location/context tails such as: near, with, overlooking, by, on, in
+- sentence-like phrasing
+- atmospheric wording
+- recommendation wording
+</INVALID_SHAPES>
+
+<VALID_OUTPUT_STYLE>
+Valid outputs should look like standardized POI category labels such as:
+- Museum
+- Art Gallery
+- Monument
+- Historic Site
+- Landmark
+- Observation Deck
+- Botanical Garden
+- Aquarium
+- Zoo
+- Plaza
+- Waterfront
+- Cathedral
+- Temple
+- Castle
+- Ruins
+- Theater
+</VALID_OUTPUT_STYLE>
+
+<REJECTION_TEST>
+For each candidate, ask:
+- Is this a category label?
+- Is this 1 to 3 words?
+- Is this free of adjectives?
+- Is this free of food/drink meaning?
+- Is this free of location modifiers?
+- Is this free of prepositions?
+- Could this plausibly map to a Foursquare category?
+
+If any answer is NO, reject it immediately.
+</REJECTION_TEST>
+
+<FALLBACK_RULE>
+If uncertain, prefer a safer generic category label.
+Safe fallback labels:
+"Museum", "Landmark", "Monument", "Historic Site", "Art Gallery", "Plaza", "Waterfront".
+</FALLBACK_RULE>
+
+<OUTPUT_SCHEMA>
+Return exactly:
+{
+  "searchQueries": ["Item 1", "Item 2", "Item 3", "Item 4", "Item 5", "Item 6", "Item 7"]
+}
+</OUTPUT_SCHEMA>
+
+<FINAL_AUDIT>
+Before returning:
+- confirm there are exactly 7 items
+- confirm every item is 1 to 3 words
+- confirm no item contains adjectives
+- confirm no item contains food/drink terms
+- confirm no item contains prepositions
+- confirm every item looks like a canonical place category label
+If any item fails, replace it before returning.
+</FINAL_AUDIT>
+`
           }
         ], { type: "json_object" });
 
@@ -349,7 +426,7 @@ serve(async (req) => {
 
     // 3. THE EDITOR: SELECT AND SEQUENCE
     if (action === 'select-and-sequence') {
-      const { days, intensity, location, budget, relaxationLevel, candidates } = body;
+      const { days, intensity, location, budget, maxActivities, candidates } = body;
       console.log(`[EDGE] Editor curating ${candidates?.length || 0} spots for ${location}...`);
 
       try {
@@ -362,7 +439,7 @@ serve(async (req) => {
             - Destination: ${location}
             - Energy: ${intensity}
             - Budget: ${budget}
-            - Relaxation Preference: ${relaxationLevel} / 10
+            - Max Activities Per Day: ${maxActivities}
             
             RAW CANDIDATE POOL:
             ${JSON.stringify(candidates)}
@@ -371,8 +448,8 @@ serve(async (req) => {
             1. CURATE: Discard generic or boring spots. Pick the absolute best ones that fit the user's energy and budget.
             2. SEQUENCE: Arrange them morning-to-night (active sights early, social/drinks late).
             3. VARIETY: No repeating categories in a single day.
-            4. PACING: Respect the user's relaxationLevel. High relaxation means fewer slots.
-            5. FOOD: Include 1-2 food stops per day.
+            4. PACING: Select between 1 and ${maxActivities} activities per day based on the user's energy level. ${maxActivities} is the hard upper limit.
+            5. NO FOOD: Do not include restaurants, bars (unless for activities/vibe), or dining stops. The user will handle food dynamically.
             
             JSON OUTPUT FORMAT:
             {
@@ -380,8 +457,7 @@ serve(async (req) => {
                 { 
                   "day": 1, 
                   "slots": [
-                    { "name": "Exact Venue Name from Pool", "type": "activity", "dwell_minutes": 120 },
-                    { "name": "Exact Venue Name from Pool", "type": "food", "dwell_minutes": 90 }
+                    { "name": "Exact Venue Name from Pool", "type": "activity", "fsq_id": "ID_FROM_POOL", "dwell_minutes": 120 }
                   ] 
                 }
               ]

@@ -1,30 +1,45 @@
----
+﻿---
 name: expo-foundation
-description: Lead Expo/React Native Engineer for Blame Travis. Focuses on foundation, TS standards, and Android-first performance.
+description: App architecture and runtime standards for Expo/React Native implementation quality.
 ---
 
-# Persona
-You are a Lead Expo and React Native Engineer with 15+ years of experience in cross-platform mobile development. You are a TypeScript purist who believes in strict typing and clean architecture. You excel at setting up robust foundations that scale, integrating complex backend services like Supabase, and ensuring that mobile apps perform flawlessly, with a specific priority on Android-first performance and optimization.
+# Expo Foundation
 
-# Instructions
+## Use When
+- Establishing architecture, app services, runtime configuration, or shared infrastructure.
 
-## Core Workflows
-1. **Foundation First:** Every feature must be built on a clean, scalable directory structure. Organize code by feature or responsibility (e.g., components, services, hooks, navigation).
-2. **TypeScript Standards:** Enforce strict typing. Use Zod for schema validation where necessary. Every data structure from Supabase or Google APIs must have a corresponding interface/type.
-3. **Environment Configuration:** Securely manage environment variables using Expo's standard patterns. Protect secrets like Supabase keys and Google Maps API keys.
-4. **Android-First Performance:** Given the fragmentation of Android, prioritize performance profiling on Android devices. Optimize image loading, reduce unnecessary re-renders, and manage JS thread pressure diligently.
-5. **Supabase Integration:** Follow best practices for Supabase Auth, Row Level Security (RLS), and Edge Functions. Ensure JWT-based sessions are handled correctly.
+## Required Inputs
+- Canonical domain contracts
+- Provider integration requirements
+- Performance and security constraints
+- Offline and sync requirements
 
-## Guardrails
-- **NO** direct usage of `any`.
-- **NO** unhandled side effects in `useEffect`.
-- **ALWAYS** check for memory leaks in navigation and heavy components.
-- **NEVER** log sensitive data or API keys in production.
+## Workflow
+1. Organize code by domain boundaries:
+   - search
+   - activities
+   - itinerary
+   - booking
+   - profile
+   - notifications
+2. Define typed interfaces and validators for external payloads.
+3. Implement provider adapters and error normalization.
+4. Implement state/data layer patterns for cache and invalidation.
+5. Validate Android-first performance paths.
+6. Validate secret and environment handling boundaries.
 
-## Project Rules
-- Follow the React Native guidelines for high-performance lists and maps.
-- Ensure all screens adhere to the parchment-friendly design system (parchment/paper base #F4EFE6).
-- Use `expo-notifications` for the core journey nudge system.
+## Required Outputs
+- Domain module map
+- API contract interfaces + validators
+- Service adapter implementations
+- Runtime configuration checklist
 
-# Project Context
-Blame Travis is a scheduled, gamified adventure app where an AI host (Travis) assigns real-world adventures. The goal is to help users stop overthinking, get out more, and build a life full of experiences worth remembering. Travis is confident, playful, slightly mischievous, and motivating. The tech stack is Expo, Supabase, Google Maps, and OpenAI.
+## Acceptance Gates
+- No untyped external payload usage
+- No provider secret exposed client-side
+- Core data flows support retry and error boundaries
+- Android performance baseline holds on target devices
+
+## Non-Negotiables
+- No `any` in critical domain paths.
+- No direct API calls bypassing adapter layer.

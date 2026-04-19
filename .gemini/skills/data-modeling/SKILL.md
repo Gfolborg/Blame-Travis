@@ -1,52 +1,56 @@
----
+﻿---
 name: data-modeling
-description: Backend Architect expertise for defining and implementing the Blame Travis data layer. Use when defining schemas, Supabase rules, or data sync logic.
+description: Deterministic Supabase data-model standards for discovery, itinerary, booking, and personalization systems.
 ---
 
 # Data Modeling
 
-## Overview
-You are a **Backend Architect (15+ years experience)** for the Blame Travis project. Your goal is to design a resilient, scalable, and secure data layer using Supabase (PostgreSQL) that supports complex itinerary generation, scheduling, and user progression.
+## Use When
+- Defining or modifying schema, indexes, constraints, RLS policies, or analytics views.
+- Mapping provider data into canonical app models.
 
-## Core Models
+## Required Inputs
+- Canonical entity definitions
+- Query access patterns
+- Retention and privacy constraints
+- Migration/backfill constraints
 
-### 1. User & Profile
-- **`profiles`**: Extends Supabase auth. Store home coordinates, transport preferences, budget defaults, time budget, and "Travis Intensity" setting.
-- **`adventure_preferences`**: Store cadence (weekly, etc.), radii, exclusions (e.g., dietary), and vibe preferences (food, nature).
+## Target Entities
+- user_preferences
+- activities
+- activity_sources
+- activity_provider_refs
+- search_sessions
+- activity_events
+- saved_activities
+- itineraries
+- itinerary_items
+- booking_intents
+- booking_outcomes
 
-### 2. Journeys & Itineraries
-- **`adventures`**: Central record. `status` (assigned, active, completed, skipped, expired). Link to `itinerary_json`.
-- **`itinerary_stops`**: Relational stops. Link to Google `place_id`, coordinates, order, and estimated spend/dwell time.
-- **`itinerary_json`**: A de-normalized snapshot of the journey logic at the time of generation for historical reproducibility.
+## Workflow
+1. Define table contracts and ownership fields.
+2. Add validation constraints and enums for statuses.
+3. Add indexes aligned to read/write access patterns.
+4. Define RLS policies for owner-only access by default.
+5. Add service-role policy exceptions only where strictly required.
+6. Define migration order with backfill and rollback plan.
+7. Validate with sample queries and policy tests.
 
-### 3. Progression (The Passport & Map)
-- **`journey_completions`**: Records of when/how an adventure was finished. Link to `proof_url`.
-- **`passport_stamps`**: Collectibles awarded by the `achievement-engine`.
-- **`visited_places`**: A flattened table for the map view, aggregating all unique stops across completed journeys.
+## Required Outputs
+- SQL migration scripts
+- RLS policy definitions
+- Index and constraint summary
+- Backfill and rollback notes
+- Validation query set
 
-## Supabase Implementation
+## Acceptance Gates
+- All user-owned tables enforce RLS
+- No ambiguous status models
+- Critical query paths use indexes
+- Migration is reversible or safely staged
+- Compatibility views exist if legacy reads remain
 
-### Row Level Security (RLS)
-- **Rules**: Users MUST only see their own journeys, profile, and passport data. 
-- **Admins**: If any admin roles exist, they should be managed via custom claims.
-
-### Data Sync & Edge Functions
-- **Scheduled Jobs**: Use Supabase Edge Functions + Cron for the `itinerary-scheduler`.
-- **Sync Logic**: Use `react-query` or `SWR` on the frontend for efficient caching and invalidation.
-
-## Caching & Invalidation Strategy
-
-### 1. Itinerary Caching
-- Cache itinerary details locally on the device (SQLite or `AsyncStorage`) once a journey is "Active" to support offline exploration.
-
-### 2. Invalidation
-- **Journey Status**: Invalidate the Journey Hub cache immediately upon completion or skip.
-- **Passport**: Re-fetch passport stamps only when a new one is awarded.
-
-### 3. Place Metadata
-- Cache Google Place Details for the active journey to minimize API costs.
-
-## Technical Standards
-- **Schema Migrations**: Use Supabase CLI for all schema changes.
-- **Types**: Use `supabase-js` generated types to ensure end-to-end type safety in the React Native app.
-- **Integrity**: Use PostgreSQL constraints (foreign keys, check constraints) to enforce business logic (e.g., `assignment_date < deadline`).
+## Non-Negotiables
+- No direct provider-secret storage in client-readable tables.
+- No schema changes without migration and verification notes.
