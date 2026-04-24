@@ -20,7 +20,6 @@ import {
 } from 'lucide-react-native';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import { useFocusEffect } from '@react-navigation/native';
-import { MotiView } from 'moti';
 import { Calendar } from 'react-native-calendars';
 
 import { useNotice } from '../components/TravisNotice';
@@ -801,11 +800,12 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
           const bookingToneStyle = bookingStateByItemId[item.id]?.statusTone === 'success' ? styles.bookingChipSuccess : bookingStateByItemId[item.id]?.statusTone === 'warning' ? styles.bookingChipWarning : bookingStateByItemId[item.id]?.statusTone === 'error' ? styles.bookingChipError : undefined;
           
           return (
-            <MotiView
-              from={{ opacity: 0, translateY: 20 }}
-              animate={{ opacity: 1, translateY: 0, rotate: isActive ? '0deg' : rotation, scale: isActive ? 1.05 : 1 }}
-              transition={{ type: 'spring', damping: 20, stiffness: 90, delay: Math.min(index, 6) * 50 }}
-              style={[styles.scrapbookItem, alignmentStyle]}
+            <View
+              style={[
+                styles.scrapbookItem,
+                alignmentStyle,
+                { transform: [{ rotate: isActive ? '0deg' : rotation }, { scale: isActive ? 1.05 : 1 }] },
+              ]}
             >
               <TouchableOpacity onLongPress={drag} activeOpacity={0.9} disabled={writesDisabled} style={[styles.storyCard, isActive && styles.storyCardActive]}>
                 <View style={styles.storyCardImageBox}>
@@ -837,7 +837,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
                   </View>
                 </View>
               </TouchableOpacity>
-            </MotiView>
+            </View>
           );
         }}
         ListFooterComponent={viewMode === 'map' ? (

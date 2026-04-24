@@ -161,14 +161,39 @@ const applyFilters = (activities: ExploreActivity[], filters: ExploreFilters) =>
   });
 };
 
+const normalizeLogicTreeSearchTerm = (value: string): string =>
+  value
+    .replace(/[,%()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildSearchTerms = (value: string): string[] => {
+  const raw = value.trim();
+  if (!raw) return [];
+
+  const candidates = [raw, ...raw.split(',')]
+    .map(normalizeLogicTreeSearchTerm)
+    .filter(Boolean);
+
+  return [...new Set(candidates)];
+};
+
 const queryDbActivities = async (input: ExploreSearchInput): Promise<ExploreActivity[]> => {
   let query = supabase.from('activities').select('*').eq('status', 'active').limit(120);
 
   const searchTerm = input.query.trim() || input.destination?.trim() || '';
   if (searchTerm) {
-    query = query.or(
-      `title.ilike.%${searchTerm}%,location_city.ilike.%${searchTerm}%,location_region.ilike.%${searchTerm}%`
-    );
+    const terms = buildSearchTerms(searchTerm);
+    if (terms.length) {
+      const orClause = terms
+        .flatMap(term => [
+          `title.ilike.%${term}%`,
+          `location_city.ilike.%${term}%`,
+          `location_region.ilike.%${term}%`,
+        ])
+        .join(',');
+      query = query.or(orClause);
+    }
   }
 
   if (input.coords) {

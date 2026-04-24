@@ -27,7 +27,6 @@ import {
 import * as Location from 'expo-location';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { MotiView, AnimatePresence } from 'moti';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -788,93 +787,74 @@ const ExploreScreen = () => {
 
   const clearAllFilters = () => setFilters(DEFAULT_FILTERS);
 
-  const renderActivityCard = ({ item, index }: { item: ExploreActivity; index: number }) => {
+  const renderActivityCard = ({ item }: { item: ExploreActivity; index: number }) => {
     const identity = getActivityIdentity(item);
     const isDismissed = dismissedActivityIds.has(identity);
     const isGrid = listLayout === 'grid';
-    
+    if (isDismissed) return null;
+
     return (
-      <AnimatePresence>
-        {!isDismissed && (
-          <MotiView
-            from={{ opacity: 0, translateY: 30 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            exit={{ opacity: 0, translateX: 180, scale: 0.96 }}
-            transition={{ type: 'timing', duration: 450, delay: index * (isGrid ? 50 : 100) }}
-            style={[styles.storyCardContainer, isGrid && styles.storyCardGridContainer]}
-          >
-            <TouchableOpacity
-              style={[styles.storyCard, isGrid && styles.storyCardGrid]}
-              onPress={() => navigation.navigate('LocationDetails', { locationId: item.canonicalKey || item.id })}
-              activeOpacity={0.95}
-            >
-              <MotiView
-                from={{ scale: 1 }}
-                animate={{ scale: 1.08 }}
-                transition={{
-                  type: 'timing',
-                  duration: 15000,
-                  loop: true,
-                  repeatReverse: true,
-                }}
-                style={StyleSheet.absoluteFill}
-              >
-                <Image 
-                  source={{ uri: item.imageUrl || 'https://images.unsplash.com/photo-1499750310107-5fef28a66643?auto=format&fit=crop&q=80&w=800' }} 
-                  style={styles.storyImage} 
-                />
-              </MotiView>
-              <LinearGradient
-                colors={['transparent', 'rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.8)']}
-                style={styles.storyGradient}
-              />
-              <View style={[styles.storyContent, isGrid && styles.storyContentGrid]}>
-                <View style={[styles.storyHeader, isGrid && styles.storyHeaderGrid]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.storyVibe, isGrid && styles.storyVibeGrid]}>{(item.categories?.[0] || 'ADVENTURE').toUpperCase()}</Text>
-                    <Text style={[styles.storyTitle, isGrid && styles.storyTitleGrid]} numberOfLines={isGrid ? 2 : 3}>{item.title}</Text>
-                  </View>
-                  {!isGrid && (
-                    <TouchableOpacity
-                      onPress={() => setDayPickerTarget(item)}
-                      style={styles.storyHeart}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Add ${item.title} to itinerary`}
-                    >
-                      <Plus size={24} color="#FFF" strokeWidth={2.2} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <View style={[styles.storyFooter, isGrid && styles.storyFooterGrid]}>
-                  <View style={styles.storyMeta}>
-                    <Star size={isGrid ? 10 : 14} color="#FFF" fill="#FFF" />
-                    <Text style={[styles.storyMetaText, isGrid && styles.storyMetaTextGrid]}>{item.ratingAverage?.toFixed(1) || '4.5'}</Text>
-                    <View style={styles.storyDot} />
-                    <Text style={[styles.storyMetaText, isGrid && styles.storyMetaTextGrid]}>{item.priceTier === 'premium' ? '$$$' : item.priceTier === 'mid' ? '$$' : '$'}</Text>
-                  </View>
-                  {!isGrid && (
-                    <>
-                      <View style={styles.storySignature}>
-                        <Text style={styles.storySignatureText}>CURATED BY TRAVIS</Text>
-                      </View>
-                      <ChevronRight size={20} color="#FFF" />
-                    </>
-                  )}
-                  {isGrid && (
-                    <TouchableOpacity
-                      onPress={() => setDayPickerTarget(item)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Add ${item.title} to itinerary`}
-                    >
-                      <Plus size={18} color="#FFF" strokeWidth={2.2} />
-                    </TouchableOpacity>
-                  )}
-                </View>
+      <View style={[styles.storyCardContainer, isGrid && styles.storyCardGridContainer]}>
+        <TouchableOpacity
+          style={[styles.storyCard, isGrid && styles.storyCardGrid]}
+          onPress={() => navigation.navigate('LocationDetails', { locationId: item.canonicalKey || item.id })}
+          activeOpacity={0.95}
+        >
+          <View style={StyleSheet.absoluteFill}>
+            <Image 
+              source={{ uri: item.imageUrl || 'https://images.unsplash.com/photo-1499750310107-5fef28a66643?auto=format&fit=crop&q=80&w=800' }} 
+              style={styles.storyImage} 
+            />
+          </View>
+          <LinearGradient
+            colors={['transparent', 'rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.8)']}
+            style={styles.storyGradient}
+          />
+          <View style={[styles.storyContent, isGrid && styles.storyContentGrid]}>
+            <View style={[styles.storyHeader, isGrid && styles.storyHeaderGrid]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.storyVibe, isGrid && styles.storyVibeGrid]}>{(item.categories?.[0] || 'ADVENTURE').toUpperCase()}</Text>
+                <Text style={[styles.storyTitle, isGrid && styles.storyTitleGrid]} numberOfLines={isGrid ? 2 : 3}>{item.title}</Text>
               </View>
-            </TouchableOpacity>
-          </MotiView>
-        )}
-      </AnimatePresence>
+              {!isGrid && (
+                <TouchableOpacity
+                  onPress={() => setDayPickerTarget(item)}
+                  style={styles.storyHeart}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${item.title} to itinerary`}
+                >
+                  <Plus size={24} color="#FFF" strokeWidth={2.2} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <View style={[styles.storyFooter, isGrid && styles.storyFooterGrid]}>
+              <View style={styles.storyMeta}>
+                <Star size={isGrid ? 10 : 14} color="#FFF" fill="#FFF" />
+                <Text style={[styles.storyMetaText, isGrid && styles.storyMetaTextGrid]}>{item.ratingAverage?.toFixed(1) || '4.5'}</Text>
+                <View style={styles.storyDot} />
+                <Text style={[styles.storyMetaText, isGrid && styles.storyMetaTextGrid]}>{item.priceTier === 'premium' ? '$$$' : item.priceTier === 'mid' ? '$$' : '$'}</Text>
+              </View>
+              {!isGrid && (
+                <>
+                  <View style={styles.storySignature}>
+                    <Text style={styles.storySignatureText}>CURATED BY TRAVIS</Text>
+                  </View>
+                  <ChevronRight size={20} color="#FFF" />
+                </>
+              )}
+              {isGrid && (
+                <TouchableOpacity
+                  onPress={() => setDayPickerTarget(item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${item.title} to itinerary`}
+                >
+                  <Plus size={18} color="#FFF" strokeWidth={2.2} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -1090,108 +1070,93 @@ const ExploreScreen = () => {
       />
 
       {/* Day Picker Tray */}
-      <AnimatePresence>
-        {dayPickerTarget && (
-          <>
-            <MotiView
-              from={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              style={styles.trayBackdrop}
-            >
-              <TouchableOpacity
-                style={{ flex: 1 }}
-                onPress={() => {
-                  setDuplicatePrompt(null);
-                  setDayPickerTarget(null);
-                }}
-              />
-            </MotiView>
-            <MotiView
-              from={{ translateY: 300 }}
-              animate={{ translateY: 0 }}
-              exit={{ translateY: 300 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              style={styles.curateTray}
-            >
-              <Text style={styles.trayTitle}>ADD TO ITINERARY</Text>
-              <Text style={styles.traySubtitle}>Assign "{dayPickerTarget.title}" to a day.</Text>
+      {dayPickerTarget && (
+        <>
+          <View style={styles.trayBackdrop}>
+            <TouchableOpacity
+              style={{ flex: 1 }}
+              onPress={() => {
+                setDuplicatePrompt(null);
+                setDayPickerTarget(null);
+              }}
+            />
+          </View>
+          <View style={styles.curateTray}>
+            <Text style={styles.trayTitle}>ADD TO ITINERARY</Text>
+            <Text style={styles.traySubtitle}>Assign "{dayPickerTarget.title}" to a day.</Text>
 
-              {duplicatePrompt && (
-                <View style={styles.duplicateInlineCard}>
-                  <Text style={styles.duplicateInlineText}>
-                    {duplicatePrompt.duplicateDayIndex === duplicatePrompt.dayIndex
-                      ? `Already in Day ${duplicatePrompt.dayIndex}. Add another copy?`
-                      : `Already in Day ${duplicatePrompt.duplicateDayIndex}. Add to Day ${duplicatePrompt.dayIndex} too?`}
-                  </Text>
-                  <View style={styles.duplicateInlineActions}>
-                    <TouchableOpacity
-                      style={styles.duplicateInlineCancel}
-                      onPress={() => setDuplicatePrompt(null)}
-                      disabled={addingToItinerary}
-                    >
-                      <Text style={styles.duplicateInlineCancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.duplicateInlineConfirm}
-                      onPress={() => {
-                        if (!dayPickerTarget || !duplicatePrompt) return;
-                        void completeAddToDay(
-                          dayPickerTarget,
-                          duplicatePrompt.dayIndex,
-                          duplicatePrompt.itineraryId,
-                          true,
-                        );
-                      }}
-                      disabled={addingToItinerary}
-                    >
-                      <Text style={styles.duplicateInlineConfirmText}>Add Anyway</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-              
-              <View style={styles.trayOptions}>
-                {assignableDays.map(day => (
-                  <TouchableOpacity 
-                    key={day} 
-                    style={styles.trayOption}
+            {duplicatePrompt && (
+              <View style={styles.duplicateInlineCard}>
+                <Text style={styles.duplicateInlineText}>
+                  {duplicatePrompt.duplicateDayIndex === duplicatePrompt.dayIndex
+                    ? `Already in Day ${duplicatePrompt.dayIndex}. Add another copy?`
+                    : `Already in Day ${duplicatePrompt.duplicateDayIndex}. Add to Day ${duplicatePrompt.dayIndex} too?`}
+                </Text>
+                <View style={styles.duplicateInlineActions}>
+                  <TouchableOpacity
+                    style={styles.duplicateInlineCancel}
+                    onPress={() => setDuplicatePrompt(null)}
+                    disabled={addingToItinerary}
+                  >
+                    <Text style={styles.duplicateInlineCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.duplicateInlineConfirm}
                     onPress={() => {
-                      void handleAddToDayPress(day);
+                      if (!dayPickerTarget || !duplicatePrompt) return;
+                      void completeAddToDay(
+                        dayPickerTarget,
+                        duplicatePrompt.dayIndex,
+                        duplicatePrompt.itineraryId,
+                        true,
+                      );
                     }}
                     disabled={addingToItinerary}
                   >
-                    <Text style={styles.trayOptionText}>{day === Math.max(...assignableDays) ? `NEW DAY ${day}` : `DAY ${day}`}</Text>
+                    <Text style={styles.duplicateInlineConfirmText}>Add Anyway</Text>
                   </TouchableOpacity>
-                ))}
+                </View>
               </View>
+            )}
+            
+            <View style={styles.trayOptions}>
+              {assignableDays.map(day => (
+                <TouchableOpacity 
+                  key={day} 
+                  style={styles.trayOption}
+                  onPress={() => {
+                    void handleAddToDayPress(day);
+                  }}
+                  disabled={addingToItinerary}
+                >
+                  <Text style={styles.trayOptionText}>{day === Math.max(...assignableDays) ? `NEW DAY ${day}` : `DAY ${day}`}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
-              <TouchableOpacity
-                style={styles.trayCancel}
-                onPress={() => {
-                  setDuplicatePrompt(null);
-                  setDayPickerTarget(null);
-                }}
-                disabled={addingToItinerary}
-              >
-                <Text style={styles.trayCancelText}>{addingToItinerary ? 'ADDING...' : 'CANCEL'}</Text>
-              </TouchableOpacity>
-            </MotiView>
-          </>
-        )}
-      </AnimatePresence>
+            <TouchableOpacity
+              style={styles.trayCancel}
+              onPress={() => {
+                setDuplicatePrompt(null);
+                setDayPickerTarget(null);
+              }}
+              disabled={addingToItinerary}
+            >
+              <Text style={styles.trayCancelText}>{addingToItinerary ? 'ADDING...' : 'CANCEL'}</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
 
       {/* Full-Screen Filter Overlay */}
-      <AnimatePresence>
-        {filterOpen && (
-          <MotiView
-            from={{ translateY: height }}
-            animate={{ translateY: 0 }}
-            exit={{ translateY: height }}
-            transition={{ type: 'spring', damping: 40, stiffness: 180 }}
-            style={styles.searchOverlay}
-          >
-            <SafeAreaView style={styles.searchSafe}>
+      <Modal
+        visible={filterOpen}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setFilterOpen(false)}
+      >
+        <View style={styles.searchOverlay}>
+          <SafeAreaView style={styles.searchSafe}>
               <View style={styles.searchHeader}>
                 <TouchableOpacity onPress={() => setFilterOpen(false)}>
                   <X size={28} color="#000" strokeWidth={1.5} />
@@ -1289,10 +1254,9 @@ const ExploreScreen = () => {
                   <Text style={styles.applyButtonText}>Show results</Text>
                 </TouchableOpacity>
               </View>
-            </SafeAreaView>
-          </MotiView>
-        )}
-      </AnimatePresence>
+          </SafeAreaView>
+        </View>
+      </Modal>
 
       <Modal
         visible={calendarOpen}

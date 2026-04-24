@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { MotiView } from 'moti';
 import { User, Search, AlertCircle } from 'lucide-react-native';
 import { theme } from '../theme';
 
@@ -47,20 +46,7 @@ export const TravisSignal: React.FC<TravisSignalProps> = ({
 
   return (
     <View style={[styles.container, { width: size, height: size }]}>
-      <MotiView
-        from={{
-          scale: 1,
-          rotate: '0deg',
-        }}
-        animate={{
-          scale: isAnimated ? 1.05 : 1,
-          rotate: status === 'thinking' ? '-3deg' : '0deg',
-        }}
-        transition={{
-          loop: isAnimated,
-          type: 'timing',
-          duration: status === 'thinking' ? 800 : 2000,
-        }}
+      <View
         style={[
           styles.silhouetteBg,
           editorial && styles.editorialShadow, // Softer shadow for editorial mode
@@ -69,11 +55,12 @@ export const TravisSignal: React.FC<TravisSignalProps> = ({
             height: size,
             borderRadius: size / 2,
             backgroundColor: getStatusColor(),
+            transform: [{ rotate: status === 'thinking' ? '-3deg' : '0deg' }, { scale: isAnimated ? 1.03 : 1 }],
           },
         ]}
       >
         {getIcon()}
-      </MotiView>
+      </View>
     </View>
   );
 };

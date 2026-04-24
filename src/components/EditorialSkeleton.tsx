@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { MotiView } from 'moti';
 
 /**
  * EditorialSkeleton — High-end placeholder for the Story Cards.
@@ -9,17 +8,7 @@ import { MotiView } from 'moti';
 export const EditorialSkeleton = () => {
   return (
     <View style={styles.container}>
-      <MotiView
-        from={{ opacity: 0.3 }}
-        animate={{ opacity: 0.6 }}
-        transition={{
-          type: 'timing',
-          duration: 1500,
-          loop: true,
-          repeatReverse: true,
-        }}
-        style={styles.card}
-      >
+      <View style={styles.card}>
         <View style={styles.content}>
           <View style={styles.lineSmall} />
           <View style={styles.lineLarge} />
@@ -28,7 +17,7 @@ export const EditorialSkeleton = () => {
             <View style={styles.lineMedium} />
           </View>
         </View>
-      </MotiView>
+      </View>
     </View>
   );
 };

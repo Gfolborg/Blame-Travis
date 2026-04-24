@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, ActivityIndicator, BackHandler, Platform, ToastAndroid } from 'react-native';
+import { View, ActivityIndicator, BackHandler, Platform, ToastAndroid, LogBox } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -42,6 +42,12 @@ export default function App() {
     Inter_700Bold,
     Inter_900Black,
   });
+
+  useEffect(() => {
+    LogBox.ignoreLogs([
+      'SafeAreaView has been deprecated and will be removed in a future release. Please use \'react-native-safe-area-context\' instead.',
+    ]);
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
