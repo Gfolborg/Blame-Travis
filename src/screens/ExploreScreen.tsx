@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   BackHandler,
   FlatList,
+  Modal,
   StyleSheet,
   Text,
   TextInput,
@@ -13,7 +14,6 @@ import {
   StatusBar,
 } from 'react-native';
 import { 
-  Map as MapIcon, 
   LayoutGrid, 
   Star, 
   Plus,
@@ -42,37 +42,22 @@ import {
   ExploreActivity,
   ExploreFilters,
   MAX_MULTI_SELECT,
-  ViewMode,
 } from '../types/explore';
 import { exploreService } from '../services/explore';
 import { discoveryService } from '../services/discovery';
 import { itineraryService } from '../services/itinerary';
-import { ItineraryDay } from '../types/itinerary';
+import { ItineraryDay, ItineraryHeader } from '../types/itinerary';
+import { Calendar } from 'react-native-calendars';
 
 const { height } = Dimensions.get('window');
-
-let MapView: any = null;
-let Marker: any = null;
-let Polyline: any = null;
-
-try {
-  const Maps = require('react-native-maps');
-  MapView = Maps.default;
-  Marker = Maps.Marker;
-  Polyline = Maps.Polyline;
-} catch {
-  MapView = null;
-  Marker = null;
-  Polyline = null;
-}
 
 const CATEGORIES = [
   { id: 'near_me', label: 'Nearby', image: 'https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&q=80&w=400' },
   { id: 'outdoor', label: 'Outdoor', image: 'https://images.unsplash.com/photo-1501555088652-021faa106b9b?auto=format&fit=crop&q=80&w=400' },
   { id: 'culture', label: 'Culture', image: 'https://images.unsplash.com/photo-1467269204594-9661b134dd2b?auto=format&fit=crop&q=80&w=400' },
   { id: 'food', label: 'Food', image: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&q=80&w=400' },
-  { id: 'nightlife', label: 'Nightlife', image: 'https://images.unsplash.com/photo-1514525253361-bee8718a7439?auto=format&fit=crop&q=80&w=400' },
-  { id: 'family', label: 'Family', image: 'https://images.unsplash.com/photo-1502086223501-7ea6ec798682?auto=format&fit=crop&q=80&w=400' },
+  { id: 'nightlife', label: 'Nightlife', image: 'https://picsum.photos/seed/nightlife-vibe/400/400' },
+  { id: 'family', label: 'Family', image: 'https://picsum.photos/seed/family-vibe/400/400' },
   { id: 'hidden_gems', label: 'Secret', image: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&q=80&w=400' },
 ];
 
@@ -94,6 +79,10 @@ const AVAILABILITY_OPTIONS: AvailabilityBucket[] = ['today', 'this_week', 'weeke
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type MultiFilterKey = 'categories' | 'priceTiers' | 'durations' | 'availability' | 'groupTypes' | 'accessibility';
+type CitySuggestion = {
+  placeId: string | null;
+  label: string;
+};
 const FILTER_LIMITS: Record<MultiFilterKey, number> = {
   categories: MAX_MULTI_SELECT,
   priceTiers: MAX_MULTI_SELECT,
@@ -102,25 +91,6 @@ const FILTER_LIMITS: Record<MultiFilterKey, number> = {
   groupTypes: 2,
   accessibility: MAX_MULTI_SELECT,
 };
-
-const defaultRegion = {
-  latitude: 37.7749,
-  longitude: -122.4194,
-  latitudeDelta: 0.12,
-  longitudeDelta: 0.12,
-};
-
-// Luxury Light Map Style
-const LIGHT_MAP_STYLE = [
-  { elementType: 'geometry', stylers: [{ color: '#f5f5f5' }] },
-  { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#f5f5f5' }] },
-  { featureType: 'administrative.land_parcel', elementType: 'labels.text.fill', stylers: [{ color: '#bdbdbd' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#eeeeee' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#ffffff' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#e9e9e9' }] },
-];
 
 const toTitle = (value: string) =>
   value
@@ -131,6 +101,32 @@ const toTitle = (value: string) =>
 const normalizeIdentity = (value?: string | null) => {
   if (!value) return '';
   return value.startsWith('provider:') ? value.replace('provider:', '') : value;
+};
+
+const normalizeCityKey = (value?: string | null) => (value || '').trim().toLowerCase();
+
+const buildMarkedRange = (startDate: string, endDate: string): Record<string, any> => {
+  if (!startDate) return {};
+  if (!endDate || endDate < startDate) {
+    return {
+      [startDate]: { startingDay: true, endingDay: true, color: theme.colors.textPrimary, textColor: '#FFF' },
+    };
+  }
+
+  const marks: Record<string, any> = {};
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    const iso = cursor.toISOString().slice(0, 10);
+    marks[iso] = { color: theme.colors.textPrimary, textColor: '#FFF' };
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  marks[startDate] = { ...marks[startDate], startingDay: true };
+  marks[endDate] = { ...marks[endDate], endingDay: true };
+  return marks;
 };
 
 const getActivityIdentity = (activity: Pick<ExploreActivity, 'id' | 'canonicalKey'>) =>
@@ -145,9 +141,10 @@ const getActivityIdentityKeys = (activity: Pick<ExploreActivity, 'id' | 'canonic
   return keys;
 };
 
+const FALLBACK_RAIL_IMAGE = require('../../assets/icon.png');
+
 const ExploreScreen = () => {
   const navigation = useNavigation<NavigationProp>();
-  const mapRef = useRef<any>(null);
   const inlineSearchRef = useRef<TextInput>(null);
   const { showNotice } = useNotice();
 
@@ -155,7 +152,6 @@ const ExploreScreen = () => {
   const [destination, setDestination] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [nearMeActive, setNearMeActive] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [filters, setFilters] = useState<ExploreFilters>(DEFAULT_FILTERS);
   const [filterOpen, setFilterOpen] = useState(false);
   const [listLayout, setListLayout] = useState<'list' | 'grid'>('list');
@@ -164,11 +160,29 @@ const ExploreScreen = () => {
   const [hasSearched, setHasSearched] = useState(false);
   const [pendingVibeId, setPendingVibeId] = useState<string | null>(null);
   const [showVibeSearchHint, setShowVibeSearchHint] = useState(false);
+  const [failedRailImages, setFailedRailImages] = useState<Record<string, true>>({});
+  const [citySuggestions, setCitySuggestions] = useState<CitySuggestion[]>([]);
+  const [autocompleteLoading, setAutocompleteLoading] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarApplying, setCalendarApplying] = useState(false);
+  const [calendarStartDate, setCalendarStartDate] = useState('');
+  const [calendarEndDate, setCalendarEndDate] = useState('');
+  const [calendarTarget, setCalendarTarget] = useState<{
+    itineraryId: string;
+    title: string;
+    destinationCity: string;
+  } | null>(null);
+  const [cityConflictPrompt, setCityConflictPrompt] = useState<{
+    selectedCity: string;
+    existingItineraryId: string;
+    existingDestination: string;
+  } | null>(null);
+  const [confirmDeleteCityConflict, setConfirmDeleteCityConflict] = useState(false);
+  const [cityConflictBusy, setCityConflictBusy] = useState(false);
   // Curation State
   const [dayPickerTarget, setDayPickerTarget] = useState<ExploreActivity | null>(null);
   const [itineraryDays, setItineraryDays] = useState<number[]>([]);
   const [activeItineraryId, setActiveItineraryId] = useState<string | null>(null);
-  const [itineraryStops, setItineraryStops] = useState<{ lat: number; lng: number }[]>([]);
   const [dismissedActivityIds, setDismissedActivityIds] = useState<Set<string>>(new Set());
   const [addingToItinerary, setAddingToItinerary] = useState(false);
   const [duplicatePrompt, setDuplicatePrompt] = useState<{
@@ -184,18 +198,8 @@ const ExploreScreen = () => {
       if (builder.bundle) {
         const days = builder.bundle.days.map((d: ItineraryDay) => d.dayIndex);
         setItineraryDays(days.length > 0 ? days : [1]);
-
-        // Fetch coords for Map Shadow
-        const stops: { lat: number; lng: number }[] = [];
-        builder.bundle.days.forEach((day: ItineraryDay) => {
-          day.items.forEach(item => {
-            if (item.lat && item.lng) stops.push({ lat: item.lat, lng: item.lng });
-          });
-        });
-        setItineraryStops(stops);
       } else {
         setItineraryDays([1]);
-        setItineraryStops([]);
       }
     } catch {
       console.warn('Failed to fetch itinerary context');
@@ -206,6 +210,53 @@ const ExploreScreen = () => {
     loadItineraryContext();
   }, [loadItineraryContext]);
 
+  useEffect(() => {
+    const term = query.trim();
+    if (nearMeActive || term.length < 3) {
+      setCitySuggestions([]);
+      setAutocompleteLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = setTimeout(async () => {
+      setAutocompleteLoading(true);
+      const rawSuggestions = await discoveryService.autocomplete(term);
+      if (cancelled) return;
+
+      const seen = new Set<string>();
+      const normalized: CitySuggestion[] = rawSuggestions
+        .map((entry: any) => {
+          const placeId = entry?.placePrediction?.placeId || entry?.placeId || null;
+          const label =
+            entry?.placePrediction?.text?.text ||
+            entry?.text?.text ||
+            entry?.description ||
+            '';
+          return {
+            placeId: typeof placeId === 'string' ? placeId : null,
+            label: typeof label === 'string' ? label.trim() : '',
+          };
+        })
+        .filter(item => item.label.length > 0)
+        .filter(item => {
+          const key = `${item.placeId || 'none'}:${item.label.toLowerCase()}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .slice(0, 7);
+
+      setCitySuggestions(normalized);
+      setAutocompleteLoading(false);
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [nearMeActive, query]);
+
   const resetToExploreLanding = useCallback(() => {
     setHasSearched(false);
     setActivities([]);
@@ -215,10 +266,19 @@ const ExploreScreen = () => {
     setNearMeActive(false);
     setPendingVibeId(null);
     setShowVibeSearchHint(false);
+    setCitySuggestions([]);
+    setAutocompleteLoading(false);
+    setCalendarOpen(false);
+    setCalendarApplying(false);
+    setCalendarStartDate('');
+    setCalendarEndDate('');
+    setCalendarTarget(null);
+    setCityConflictBusy(false);
+    setConfirmDeleteCityConflict(false);
+    setCityConflictPrompt(null);
     setFilterOpen(false);
     setFilters(DEFAULT_FILTERS);
     setListLayout('list');
-    setViewMode('list');
   }, []);
 
   useFocusEffect(
@@ -231,12 +291,21 @@ const ExploreScreen = () => {
           setDayPickerTarget(null);
           return true;
         }
+        if (calendarOpen) {
+          setCalendarOpen(false);
+          return true;
+        }
+        if (cityConflictPrompt) {
+          setCityConflictPrompt(null);
+          setConfirmDeleteCityConflict(false);
+          return true;
+        }
         if (filterOpen) {
           setFilterOpen(false);
           return true;
         }
-        if (viewMode === 'map') {
-          setViewMode('list');
+        if (citySuggestions.length > 0) {
+          setCitySuggestions([]);
           return true;
         }
         if (showVibeSearchHint) {
@@ -253,7 +322,7 @@ const ExploreScreen = () => {
 
       const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
       return () => sub.remove();
-    }, [loadItineraryContext, duplicatePrompt, dayPickerTarget, filterOpen, viewMode, showVibeSearchHint, hasSearched, resetToExploreLanding])
+    }, [loadItineraryContext, duplicatePrompt, dayPickerTarget, calendarOpen, cityConflictPrompt, filterOpen, citySuggestions.length, showVibeSearchHint, hasSearched, resetToExploreLanding])
   );
 
   useEffect(() => {
@@ -279,6 +348,152 @@ const ExploreScreen = () => {
     () => nearMeActive || Boolean(query.trim()) || Boolean(destination?.trim()),
     [destination, nearMeActive, query],
   );
+  const shouldShowCitySuggestions = useMemo(
+    () => !nearMeActive && query.trim().length >= 3 && (autocompleteLoading || citySuggestions.length > 0),
+    [autocompleteLoading, citySuggestions.length, nearMeActive, query],
+  );
+  const calendarMarkedDates = useMemo(
+    () => buildMarkedRange(calendarStartDate, calendarEndDate),
+    [calendarEndDate, calendarStartDate],
+  );
+
+  const closeCalendar = useCallback(() => {
+    setCalendarOpen(false);
+    setCalendarApplying(false);
+    setCalendarStartDate('');
+    setCalendarEndDate('');
+    setCalendarTarget(null);
+  }, []);
+
+  const openCalendarForHeader = useCallback((header: Pick<ItineraryHeader, 'id' | 'title' | 'destinationCity' | 'startDate' | 'endDate'>) => {
+    setCalendarTarget({
+      itineraryId: header.id,
+      title: header.title,
+      destinationCity: header.destinationCity,
+    });
+    setCalendarStartDate(header.startDate || '');
+    setCalendarEndDate(header.endDate || '');
+    setCalendarOpen(true);
+  }, []);
+
+  const createAndActivateItineraryForCity = useCallback(
+    async (selectedCity: string) => {
+      const created = await itineraryService.createItinerary({
+        title: `${selectedCity} Trip`,
+        destinationCity: selectedCity,
+        startDate: null,
+        endDate: null,
+      });
+      await loadItineraryContext(created.id);
+      openCalendarForHeader(created);
+      return created;
+    },
+    [loadItineraryContext, openCalendarForHeader],
+  );
+
+  const closeCityConflictPrompt = useCallback(() => {
+    setCityConflictBusy(false);
+    setConfirmDeleteCityConflict(false);
+    setCityConflictPrompt(null);
+  }, []);
+
+  const markRailImageFailed = useCallback((key: string) => {
+    setFailedRailImages(current => (current[key] ? current : { ...current, [key]: true }));
+  }, []);
+
+  const handleCalendarDayPress = useCallback(
+    (dateString: string) => {
+      if (!calendarStartDate || (calendarStartDate && calendarEndDate)) {
+        setCalendarStartDate(dateString);
+        setCalendarEndDate('');
+        return;
+      }
+
+      if (dateString < calendarStartDate) {
+        setCalendarStartDate(dateString);
+        setCalendarEndDate('');
+        return;
+      }
+
+      setCalendarEndDate(dateString);
+    },
+    [calendarEndDate, calendarStartDate],
+  );
+
+  const handleApplyCalendarDates = useCallback(async () => {
+    if (!calendarTarget || !calendarStartDate) {
+      closeCalendar();
+      return;
+    }
+    setCalendarApplying(true);
+    try {
+      await itineraryService.updateItineraryDetails({
+        itineraryId: calendarTarget.itineraryId,
+        title: calendarTarget.title,
+        destinationCity: calendarTarget.destinationCity,
+        startDate: calendarStartDate,
+        endDate: calendarEndDate || calendarStartDate,
+      });
+      await loadItineraryContext(calendarTarget.itineraryId);
+      closeCalendar();
+    } catch (error: any) {
+      showNotice({
+        title: 'DATES NOT SAVED',
+        message: error?.message || 'Could not update itinerary dates right now.',
+        type: 'error',
+      });
+      setCalendarApplying(false);
+    }
+  }, [calendarEndDate, calendarStartDate, calendarTarget, closeCalendar, loadItineraryContext, showNotice]);
+
+  const handleUseExistingItineraryForCity = useCallback(async () => {
+    if (!cityConflictPrompt) return;
+    setCityConflictBusy(true);
+    try {
+      await loadItineraryContext(cityConflictPrompt.existingItineraryId);
+      closeCityConflictPrompt();
+    } catch (error: any) {
+      setCityConflictBusy(false);
+      showNotice({
+        title: 'SWITCH FAILED',
+        message: error?.message || 'Could not keep the active itinerary.',
+        type: 'error',
+      });
+    }
+  }, [cityConflictPrompt, closeCityConflictPrompt, loadItineraryContext, showNotice]);
+
+  const handleCreateNewItineraryForConflict = useCallback(async () => {
+    if (!cityConflictPrompt) return;
+    setCityConflictBusy(true);
+    try {
+      await createAndActivateItineraryForCity(cityConflictPrompt.selectedCity);
+      closeCityConflictPrompt();
+    } catch (error: any) {
+      setCityConflictBusy(false);
+      showNotice({
+        title: 'CREATE FAILED',
+        message: error?.message || 'Could not create a new itinerary.',
+        type: 'error',
+      });
+    }
+  }, [cityConflictPrompt, closeCityConflictPrompt, createAndActivateItineraryForCity, showNotice]);
+
+  const handleDeleteAndCreateForConflict = useCallback(async () => {
+    if (!cityConflictPrompt) return;
+    setCityConflictBusy(true);
+    try {
+      await itineraryService.deleteItinerary(cityConflictPrompt.existingItineraryId);
+      await createAndActivateItineraryForCity(cityConflictPrompt.selectedCity);
+      closeCityConflictPrompt();
+    } catch (error: any) {
+      setCityConflictBusy(false);
+      showNotice({
+        title: 'DELETE FAILED',
+        message: error?.message || 'Could not delete and recreate itinerary.',
+        type: 'error',
+      });
+    }
+  }, [cityConflictPrompt, closeCityConflictPrompt, createAndActivateItineraryForCity, showNotice]);
 
   const completeAddToDay = useCallback(
     async (activity: ExploreActivity, dayIndex: number, itineraryId: string, duplicateOverride: boolean) => {
@@ -291,12 +506,6 @@ const ExploreScreen = () => {
         });
         const days = nextBundle.days.map(day => day.dayIndex);
         setItineraryDays(days.length ? days : [1]);
-        const stops = nextBundle.days.flatMap(day =>
-          day.items
-            .filter(item => item.lat != null && item.lng != null)
-            .map(item => ({ lat: item.lat as number, lng: item.lng as number })),
-        );
-        setItineraryStops(stops);
         setDismissedActivityIds(current => new Set(current).add(getActivityIdentity(activity)));
 
         AccessibilityInfo.announceForAccessibility(`Added ${activity.title} to day ${dayIndex}`);
@@ -450,24 +659,78 @@ const ExploreScreen = () => {
     });
   }, [runSearch, showNotice]);
 
+  const handleCitySelection = useCallback(
+    async ({
+      cityLabel,
+      placeId,
+      source,
+    }: {
+      cityLabel: string;
+      placeId?: string | null;
+      source: 'manual' | 'suggestion' | 'popular_city';
+    }) => {
+      const trimmedCity = cityLabel.trim();
+      if (!trimmedCity) return;
+      try {
+        setQuery(trimmedCity);
+        setCitySuggestions([]);
+        setNearMeActive(false);
+        setPendingVibeId(null);
+        setShowVibeSearchHint(false);
+
+        const geocoded = await discoveryService.geocode(trimmedCity, placeId || undefined);
+        if (geocoded) setCoords(geocoded);
+
+        const builder = await itineraryService.loadBuilderData();
+        const existingBundle = builder.bundle;
+        const selectedCityKey = normalizeCityKey(trimmedCity);
+        const existingCityKey = normalizeCityKey(existingBundle?.header.destinationCity);
+
+        if (!existingBundle || !builder.activeItineraryId) {
+          await createAndActivateItineraryForCity(trimmedCity);
+        } else if (selectedCityKey && existingCityKey && selectedCityKey !== existingCityKey) {
+          setCityConflictPrompt({
+            selectedCity: trimmedCity,
+            existingItineraryId: builder.activeItineraryId,
+            existingDestination: existingBundle.header.destinationCity || 'your current itinerary',
+          });
+        } else {
+          await loadItineraryContext(builder.activeItineraryId);
+        }
+
+        const nextFilters = pendingVibeId
+          ? { ...filters, categories: [pendingVibeId] }
+          : undefined;
+        if (nextFilters) {
+          setFilters(nextFilters);
+        }
+
+        exploreService.trackEvent({
+          eventName: 'explore_city_selected',
+          metadata: {
+            source,
+            city: trimmedCity,
+            place_id: placeId || null,
+          },
+        });
+
+        await runSearch({ queryOverride: trimmedCity, nearMeOverride: false, filtersOverride: nextFilters });
+      } catch (error: any) {
+        showNotice({
+          title: 'SEARCH FAILED',
+          message: error?.message || 'Could not initialize this city right now.',
+          type: 'error',
+        });
+      }
+    },
+    [createAndActivateItineraryForCity, filters, loadItineraryContext, pendingVibeId, runSearch, showNotice],
+  );
+
   const handleSearchPress = useCallback(async () => {
     const trimmed = query.trim();
     if (!trimmed) return;
-
-    const nextFilters = pendingVibeId
-      ? { ...filters, categories: [pendingVibeId] }
-      : undefined;
-
-    setNearMeActive(false);
-    const geocoded = await discoveryService.geocode(trimmed);
-    if (geocoded) setCoords(geocoded);
-    if (nextFilters) {
-      setFilters(nextFilters);
-    }
-    setPendingVibeId(null);
-    setShowVibeSearchHint(false);
-    await runSearch({ queryOverride: trimmed, nearMeOverride: false, filtersOverride: nextFilters });
-  }, [query, pendingVibeId, filters, runSearch]);
+    await handleCitySelection({ cityLabel: trimmed, source: 'manual' });
+  }, [handleCitySelection, query]);
 
   const handleVibePress = useCallback(
     async (vibeId: string) => {
@@ -619,36 +882,68 @@ const ExploreScreen = () => {
     () => vibeOptions.find(vibe => vibe.id === pendingVibeId)?.label ?? null,
     [pendingVibeId, vibeOptions],
   );
-  const canUseMapToggle = hasSearched && activities.length > 0;
 
   const renderSearchInput = (compact = false) => (
-    <View style={[styles.searchInputShell, compact && styles.searchInputShellCompact]}>
-      <SearchIcon size={compact ? 16 : 20} color={theme.colors.textSecondary} />
-      <TextInput
-        ref={inlineSearchRef}
-        style={[styles.searchInput, compact && styles.searchInputCompact]}
-        placeholder="Where to..."
-        placeholderTextColor="#999"
-        value={query}
-        onChangeText={setQuery}
-        returnKeyType="search"
-        autoCorrect={false}
-        autoCapitalize="words"
-        onSubmitEditing={() => {
-          void handleSearchPress();
-        }}
-      />
-      {query.trim().length > 0 && (
-        <TouchableOpacity
-          style={styles.searchSubmit}
-          onPress={() => {
+    <View style={styles.searchInputWrap}>
+      <View style={[styles.searchInputShell, compact && styles.searchInputShellCompact]}>
+        <SearchIcon size={compact ? 16 : 20} color={theme.colors.textSecondary} />
+        <TextInput
+          ref={inlineSearchRef}
+          style={[styles.searchInput, compact && styles.searchInputCompact]}
+          placeholder="Where to..."
+          placeholderTextColor="#999"
+          value={query}
+          onChangeText={value => {
+            setQuery(value);
+            if (nearMeActive) setNearMeActive(false);
+          }}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="words"
+          onSubmitEditing={() => {
             void handleSearchPress();
           }}
-          accessibilityRole="button"
-          accessibilityLabel="Run search"
-        >
-          <Text style={styles.searchSubmitText}>Go</Text>
-        </TouchableOpacity>
+        />
+        {query.trim().length > 0 && (
+          <TouchableOpacity
+            style={styles.searchSubmit}
+            onPress={() => {
+              void handleSearchPress();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Run search"
+          >
+            <Text style={styles.searchSubmitText}>Go</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {shouldShowCitySuggestions && (
+        <View style={[styles.citySuggestionsCard, compact && styles.citySuggestionsCardCompact]}>
+          {autocompleteLoading && citySuggestions.length === 0 ? (
+            <View style={styles.citySuggestionRow}>
+              <Text style={styles.citySuggestionText}>Searching cities...</Text>
+            </View>
+          ) : (
+            citySuggestions.map(item => (
+              <TouchableOpacity
+                key={`${item.placeId || 'none'}-${item.label}`}
+                style={styles.citySuggestionRow}
+                onPress={() => {
+                  void handleCitySelection({
+                    cityLabel: item.label,
+                    placeId: item.placeId,
+                    source: 'suggestion',
+                  });
+                }}
+              >
+                <Text style={styles.citySuggestionText} numberOfLines={1}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
       )}
     </View>
   );
@@ -741,7 +1036,11 @@ const ExploreScreen = () => {
                         }}
                       >
                         <View style={[styles.trendingCircleSmall, isSelected && styles.trendingCircleSmallSelected]}>
-                          <Image source={{ uri: item.image }} style={styles.trendingImage} />
+                          <Image
+                            source={failedRailImages[`vibe:${item.id}`] ? FALLBACK_RAIL_IMAGE : { uri: item.image }}
+                            style={styles.trendingImage}
+                            onError={() => markRailImageFailed(`vibe:${item.id}`)}
+                          />
                         </View>
                         <Text style={[styles.trendingLabelSmall, isSelected && styles.trendingLabelSmallSelected]}>
                           {item.label.toUpperCase()}
@@ -764,15 +1063,15 @@ const ExploreScreen = () => {
                     <TouchableOpacity
                       style={styles.overlayTrendingItem}
                       onPress={() => {
-                        setQuery(item.label);
-                        setNearMeActive(false);
-                        setPendingVibeId(null);
-                        setShowVibeSearchHint(false);
-                        void runSearch({ queryOverride: item.label, nearMeOverride: false });
+                        void handleCitySelection({ cityLabel: item.label, source: 'popular_city' });
                       }}
                     >
                       <View style={styles.trendingCircleSmall}>
-                        <Image source={{ uri: item.image }} style={styles.trendingImage} />
+                        <Image
+                          source={failedRailImages[`city:${item.id}`] ? FALLBACK_RAIL_IMAGE : { uri: item.image }}
+                          style={styles.trendingImage}
+                          onError={() => markRailImageFailed(`city:${item.id}`)}
+                        />
                       </View>
                       <Text style={styles.trendingLabelSmall}>{item.label.toUpperCase()}</Text>
                     </TouchableOpacity>
@@ -789,23 +1088,6 @@ const ExploreScreen = () => {
           ) : null
         }
       />
-
-      {/* Floating Map/List Toggle */}
-      <View style={styles.floatingControls}>
-        <TouchableOpacity 
-          style={[styles.mapToggle, !canUseMapToggle && styles.mapToggleDisabled]} 
-          onPress={() => {
-            if (!canUseMapToggle) return;
-            setViewMode(viewMode === 'list' ? 'map' : 'list');
-          }}
-          disabled={!canUseMapToggle}
-        >
-          {viewMode === 'list' ? <MapIcon size={20} color="#000" /> : <LayoutGrid size={20} color="#000" />}
-          <Text style={[styles.mapToggleText, !canUseMapToggle && styles.mapToggleTextDisabled]}>
-            {viewMode === 'list' ? 'Map' : 'List'}
-          </Text>
-        </TouchableOpacity>
-      </View>
 
       {/* Day Picker Tray */}
       <AnimatePresence>
@@ -945,7 +1227,15 @@ const ExploreScreen = () => {
                               onPress={() => toggleFilterValue('categories', option.id)}
                             >
                               <View style={[styles.trendingCircleSmall, isSelected && styles.trendingCircleSmallSelected]}>
-                                <Image source={{ uri: (option as { image?: string }).image }} style={styles.trendingImage} />
+                                <Image
+                                  source={
+                                    failedRailImages[`vibe:${option.id}`] || !(option as { image?: string }).image
+                                      ? FALLBACK_RAIL_IMAGE
+                                      : { uri: (option as { image?: string }).image as string }
+                                  }
+                                  style={styles.trendingImage}
+                                  onError={() => markRailImageFailed(`vibe:${option.id}`)}
+                                />
                               </View>
                               <Text style={[styles.trendingLabelSmall, isSelected && styles.trendingLabelSmallSelected]}>
                                 {option.label.toUpperCase()}
@@ -1004,48 +1294,104 @@ const ExploreScreen = () => {
         )}
       </AnimatePresence>
 
-      {/* Map View Mode */}
-      {viewMode === 'map' && MapView && (
-        <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} style={StyleSheet.absoluteFill}>
-          <MapView
-            ref={mapRef}
-            style={StyleSheet.absoluteFill}
-            customMapStyle={LIGHT_MAP_STYLE}
-            initialRegion={coords ? { latitude: coords.lat, longitude: coords.lng, latitudeDelta: 0.12, longitudeDelta: 0.12 } : defaultRegion}
-          >
-            {activities.filter(a => a.lat && a.lng).map(activity => (
-              <Marker
-                key={activity.id}
-                coordinate={{ latitude: activity.lat!, longitude: activity.lng! }}
+      <Modal
+        visible={calendarOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={closeCalendar}
+      >
+        <View style={styles.calendarBackdrop}>
+          <View style={styles.calendarCard}>
+            <Text style={styles.calendarTitle}>Set trip dates (optional)</Text>
+            <Text style={styles.calendarSubtitle}>
+              {calendarTarget?.destinationCity || 'Your itinerary'}
+            </Text>
+            <Text style={styles.calendarHint}>Pick a start and end date, or set them later.</Text>
+            <Calendar
+              markingType="period"
+              markedDates={calendarMarkedDates}
+              theme={{
+                calendarBackground: '#FFFFFF',
+                dayTextColor: '#1A1A1A',
+                monthTextColor: '#1A1A1A',
+                textDayFontFamily: 'Inter_500Medium',
+                textMonthFontFamily: 'Inter_700Bold',
+                textDayHeaderFontFamily: 'Inter_600SemiBold',
+              }}
+              onDayPress={day => handleCalendarDayPress(day.dateString)}
+            />
+            <View style={styles.calendarActions}>
+              <TouchableOpacity style={styles.calendarSecondary} onPress={closeCalendar} disabled={calendarApplying}>
+                <Text style={styles.calendarSecondaryText}>Set Later</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.calendarPrimary, (!calendarStartDate || calendarApplying) && styles.calendarPrimaryDisabled]}
+                onPress={() => {
+                  void handleApplyCalendarDates();
+                }}
+                disabled={!calendarStartDate || calendarApplying}
               >
-                <View style={styles.customMarker}>
-                  <View style={styles.markerInner} />
-                </View>
-              </Marker>
-            ))}
+                <Text style={styles.calendarPrimaryText}>{calendarApplying ? 'Saving...' : 'Apply Dates'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
-            {/* MAP SHADOW: The ink path connecting existing stops in the journey. */}
-            {itineraryStops.length > 1 && Polyline && (
+      <Modal
+        visible={Boolean(cityConflictPrompt)}
+        transparent
+        animationType="fade"
+        onRequestClose={closeCityConflictPrompt}
+      >
+        <View style={styles.cityConflictBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeCityConflictPrompt} disabled={cityConflictBusy} />
+          <View style={styles.cityConflictCard}>
+            {!confirmDeleteCityConflict ? (
               <>
-                <Polyline
-                  coordinates={itineraryStops.map(s => ({ latitude: s.lat, longitude: s.lng }))}
-                  strokeColor="#FFF"
-                  strokeWidth={4}
-                />
-                <Polyline
-                  coordinates={itineraryStops.map(s => ({ latitude: s.lat, longitude: s.lng }))}
-                  strokeColor="rgba(26, 26, 26, 0.4)"
-                  strokeWidth={2}
-                  lineDashPattern={[5, 5]}
-                />
+                <Text style={styles.cityConflictTitle}>Existing itinerary found</Text>
+                <Text style={styles.cityConflictMessage}>
+                  You already have an itinerary for {cityConflictPrompt?.existingDestination}. What should happen with {cityConflictPrompt?.selectedCity}?
+                </Text>
+                <View style={styles.cityConflictActions}>
+                  <TouchableOpacity style={styles.cityConflictAction} onPress={() => { void handleUseExistingItineraryForCity(); }} disabled={cityConflictBusy}>
+                    <Text style={styles.cityConflictActionText}>Add to Existing</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.cityConflictAction} onPress={() => { void handleCreateNewItineraryForConflict(); }} disabled={cityConflictBusy}>
+                    <Text style={styles.cityConflictActionText}>Create New</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.cityConflictAction, styles.cityConflictDelete]}
+                    onPress={() => setConfirmDeleteCityConflict(true)}
+                    disabled={cityConflictBusy}
+                  >
+                    <Text style={styles.cityConflictDeleteText}>Delete Existing</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.cityConflictTitle}>Delete current itinerary?</Text>
+                <Text style={styles.cityConflictMessage}>
+                  This permanently removes the existing itinerary before creating a new one for {cityConflictPrompt?.selectedCity}.
+                </Text>
+                <View style={styles.cityConflictActions}>
+                  <TouchableOpacity style={styles.cityConflictAction} onPress={() => setConfirmDeleteCityConflict(false)} disabled={cityConflictBusy}>
+                    <Text style={styles.cityConflictActionText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.cityConflictAction, styles.cityConflictDelete]}
+                    onPress={() => { void handleDeleteAndCreateForConflict(); }}
+                    disabled={cityConflictBusy}
+                  >
+                    <Text style={styles.cityConflictDeleteText}>{cityConflictBusy ? 'Working...' : 'Delete & Create'}</Text>
+                  </TouchableOpacity>
+                </View>
               </>
             )}
-          </MapView>
-          <TouchableOpacity style={styles.closeMap} onPress={() => setViewMode('list')}>
-            <X size={24} color="#000" />
-          </TouchableOpacity>
-        </MotiView>
-      )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1099,6 +1445,37 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     fontSize: 12,
     letterSpacing: 0.3,
+  },
+  searchInputWrap: {
+    width: '100%',
+  },
+  citySuggestionsCard: {
+    marginTop: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    backgroundColor: '#FFF',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  citySuggestionsCardCompact: {
+    marginTop: 6,
+  },
+  citySuggestionRow: {
+    height: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F2',
+  },
+  citySuggestionText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 14,
+    color: '#1A1A1A',
   },
   
   trendingSection: { marginTop: 48 },
@@ -1165,35 +1542,6 @@ const styles = StyleSheet.create({
   storyMetaText: { fontFamily: 'Inter_600SemiBold', fontSize: 14, color: '#FFF' },
   storyMetaTextGrid: { fontSize: 11 },
   storyDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(255, 255, 255, 0.5)' },
-  
-  floatingControls: { 
-    position: 'absolute', 
-    bottom: 40, 
-    left: 20, 
-    right: 20, 
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center' 
-  },
-  mapToggle: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    backgroundColor: '#FFF', 
-    paddingHorizontal: 20, 
-    paddingVertical: 14, 
-    borderRadius: 30, 
-    gap: 10, 
-    shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 10 }, 
-    shadowOpacity: 0.1, 
-    shadowRadius: 20, 
-    elevation: 10 
-  },
-  mapToggleDisabled: {
-    opacity: 0.45,
-  },
-  mapToggleText: { fontFamily: 'Inter_700Bold', fontSize: 14, color: '#000' },
-  mapToggleTextDisabled: { color: '#555' },
   
   trayBackdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -1348,10 +1696,127 @@ const styles = StyleSheet.create({
   searchLargeInput: { fontFamily: 'Inter_900Black', fontSize: 48, color: '#1A1A1A' },
   suggestionItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   suggestionText: { fontFamily: 'Inter_600SemiBold', fontSize: 20, color: '#1A1A1A' },
-  
-  customMarker: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.1)', alignItems: 'center', justifyContent: 'center' },
-  markerInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#000', borderWidth: 2, borderColor: '#FFF' },
-  closeMap: { position: 'absolute', top: 60, right: 32, width: 48, height: 48, borderRadius: 24, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
+  calendarBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    padding: 16,
+  },
+  calendarCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 18,
+    padding: 14,
+  },
+  calendarTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 18,
+    color: '#1A1A1A',
+  },
+  calendarSubtitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: '#444',
+    marginTop: 4,
+  },
+  calendarHint: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#666',
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  calendarActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  calendarSecondary: {
+    flex: 1,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF',
+  },
+  calendarSecondaryText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: '#444',
+  },
+  calendarPrimary: {
+    flex: 1,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1A1A1A',
+  },
+  calendarPrimaryDisabled: {
+    opacity: 0.45,
+  },
+  calendarPrimaryText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 13,
+    color: '#FFF',
+  },
+  cityConflictBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.28)',
+    paddingHorizontal: 20,
+  },
+  cityConflictCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    backgroundColor: '#FFF',
+    padding: 16,
+  },
+  cityConflictTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 17,
+    color: '#1A1A1A',
+    marginBottom: 8,
+  },
+  cityConflictMessage: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    color: '#444',
+    lineHeight: 18,
+  },
+  cityConflictActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 14,
+  },
+  cityConflictAction: {
+    minWidth: 120,
+    height: 38,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF',
+  },
+  cityConflictActionText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: '#333',
+  },
+  cityConflictDelete: {
+    borderColor: 'rgba(198, 40, 40, 0.45)',
+    backgroundColor: 'rgba(198, 40, 40, 0.08)',
+  },
+  cityConflictDeleteText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 12,
+    color: '#C62828',
+  },
 });
 
 export default ExploreScreen;

@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { View, ActivityIndicator, BackHandler, Platform } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, ActivityIndicator, BackHandler, Platform, ToastAndroid } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -25,6 +25,7 @@ const getDeepestActiveRouteName = (state: any): string | undefined => {
 };
 
 export default function App() {
+  const lastBackPressAtRef = useRef(0);
   const [fontsLoaded] = useFonts({
     Archivo_400Regular,
     Archivo_600SemiBold,
@@ -58,7 +59,16 @@ export default function App() {
 
       if (activeRouteName && activeRouteName !== 'Home') {
         navigationRef.navigate('MainTabs', { screen: 'Home' });
+        return true;
       }
+
+      const now = Date.now();
+      if (now - lastBackPressAtRef.current < 1800) {
+        BackHandler.exitApp();
+        return true;
+      }
+      lastBackPressAtRef.current = now;
+      ToastAndroid.show('Press back again to exit', ToastAndroid.SHORT);
 
       return true;
     };
