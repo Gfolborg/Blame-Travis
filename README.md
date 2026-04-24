@@ -23,7 +23,7 @@ Blame Travis must answer three questions quickly:
 1. **Search**: destination, keyword, category, or near-me input.
 2. **Refine**: fast filters for budget, duration, interest, rating, availability, group fit, and accessibility.
 3. **Discover**: visual cards, map toggle, and social proof.
-4. **Save**: user favorites activities into an itinerary draft.
+4. **Save/Curate**: user can drop activities into a Satchel (unassigned) or assign directly to an itinerary day.
 5. **Plan**: Travis assembles and explains the ranked day plan.
 6. **Book**: user books in-app when supplier inventory supports it.
 7. **Complete + Return**: reminders, stamps, and personalized follow-up suggestions.
@@ -92,6 +92,7 @@ Travis remains the host voice and recommendation narrator.
 - Use visual-first activity cards with clear hero image, price, duration, rating, and save action.
 - Avoid native `Alert.alert` product messaging; use in-app notice components.
 - Prioritize Android-first smoothness and map/list performance.
+- Map views must gracefully handle stops without coordinates (never crash; provide non-map fallback labeling).
 
 ## Monetization Direction
 

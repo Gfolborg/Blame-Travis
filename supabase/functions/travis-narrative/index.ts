@@ -471,6 +471,43 @@ If any item fails, replace it before returning.
         return new Response(JSON.stringify({ blueprint: [], error: e.message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
     }
+
+    // 4. THE ANALYST: GET SINGLE ACTIVITY EXPLANATION
+    if (action === 'get-activity-explanation') {
+      const { activityTitle, activitySummary, categories, location } = body;
+      console.log(`[EDGE] Analyst explaining activity: ${activityTitle}`);
+
+      try {
+        const aiResult = await callAI([
+          {
+            role: 'system',
+            content: `You are Travis, the world's most discerning travel strategist. Your voice is direct, adventurous, and lightly sarcastic. 
+            Give a 1-2 sentence explanation of why this activity is a superior choice for a traveler. 
+            Ground your explanation in the provided facts but maintain your sharp persona.
+            Avoid generic praise. No military language.`
+          },
+          {
+            role: 'user',
+            content: `ACTIVITY: ${activityTitle}
+            LOCATION: ${location}
+            SUMMARY: ${activitySummary || 'No summary provided.'}
+            CATEGORIES: ${(categories || []).join(', ')}
+            
+            JSON OUTPUT FORMAT:
+            {
+              "explanation": "..."
+            }`
+          }
+        ], { type: "json_object" });
+
+        return new Response(aiResult.content, { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (e) {
+        console.error('[EDGE] Analyst Fallback Engaged');
+        return new Response(JSON.stringify({ 
+          explanation: `Travis: 'This spot in ${location} has the right energy. Don't waste your time looking for better—this is it.'` 
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
     // 3. GENERATE ITINERARY NARRATIVE (Standard)
     const { intensity, location, budget, stops, weather, days, isRoamer } = body;
     const weatherPrompt = weather ? `CURRENT CONDITIONS: ${weather}. ` : "";

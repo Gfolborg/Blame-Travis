@@ -26,6 +26,7 @@ export interface ExploreActivity {
   bookingSupported: boolean;
   bookingDeepLink: string | null;
   imageUrl: string | null;
+  imageUrls?: string[];
   city: string | null;
   region: string | null;
   countryCode: string | null;

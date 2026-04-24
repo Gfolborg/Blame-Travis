@@ -1,18 +1,13 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Platform } from 'react-native';
+import React, { createContext, useContext, useState, useCallback, useMemo, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Animated, { 
   useSharedValue, 
   useAnimatedStyle, 
-  withSpring, 
   withTiming,
   runOnJS
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../theme';
-import { TravisSignal } from './TravisSignal';
-
-const { width } = Dimensions.get('window');
 
 interface NoticeAction {
   text: string;
@@ -37,36 +32,60 @@ const NoticeContext = createContext<NoticeContextType | undefined>(undefined);
 
 export const NoticeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentNotice, setCurrentNotice] = useState<NoticeOptions | null>(null);
-  const translateY = useSharedValue(-200);
+  const translateY = useSharedValue(36);
+  const containerOpacity = useSharedValue(0);
   const backdropOpacity = useSharedValue(0);
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasActions = Boolean(currentNotice?.actions && currentNotice.actions.length > 0);
 
   const hideNotice = useCallback(() => {
-    translateY.value = withSpring(-300, { damping: 20 }, () => {
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = null;
+    }
+    translateY.value = withTiming(24, { duration: 150 });
+    containerOpacity.value = withTiming(0, { duration: 130 }, () => {
       runOnJS(setCurrentNotice)(null);
     });
-    backdropOpacity.value = withTiming(0);
-  }, []);
+    backdropOpacity.value = withTiming(0, { duration: 120 });
+  }, [backdropOpacity, containerOpacity, translateY, setCurrentNotice]);
 
   const showNotice = useCallback((options: NoticeOptions) => {
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = null;
+    }
     setCurrentNotice(options);
-    translateY.value = withSpring(0, { damping: 15, stiffness: 100 });
-    backdropOpacity.value = withTiming(1);
+    translateY.value = 24;
+    containerOpacity.value = 0;
+    backdropOpacity.value = 0;
+    translateY.value = withTiming(0, { duration: 170 });
+    containerOpacity.value = withTiming(1, { duration: 170 });
+    backdropOpacity.value = withTiming(options.actions?.length ? 1 : 0, { duration: 150 });
 
     // Auto-hide if no actions provided
     if (!options.actions || options.actions.length === 0) {
-      setTimeout(() => {
+      dismissTimerRef.current = setTimeout(() => {
         hideNotice();
-      }, options.duration || 4000);
+      }, options.duration || 1800);
     }
-  }, [hideNotice]);
+  }, [hideNotice, backdropOpacity, containerOpacity, translateY, setCurrentNotice]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
+    opacity: containerOpacity.value,
   }));
 
   const backdropStyle = useAnimatedStyle(() => ({
-    opacity: backdropOpacity.value,
+    opacity: backdropOpacity.value * 0.28,
   }));
+
+  const toneColor = useMemo(() => {
+    if (currentNotice?.type === 'error') return '#C62828';
+    if (currentNotice?.type === 'warning') return '#C97A00';
+    if (currentNotice?.type === 'success') return '#2E7D32';
+    return theme.colors.textSecondary;
+  }, [currentNotice?.type]);
 
   return (
     <NoticeContext.Provider value={{ showNotice, hideNotice }}>
@@ -74,56 +93,65 @@ export const NoticeProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       
       {currentNotice && (
         <View style={styles.overlay} pointerEvents="box-none">
-          {/* Subtle Backdrop for focus if actions are present */}
-          {currentNotice.actions && currentNotice.actions.length > 0 && (
+          {hasActions && (
             <Animated.View style={[styles.backdrop, backdropStyle]} onTouchStart={hideNotice} />
           )}
 
           <SafeAreaView style={styles.safeArea} pointerEvents="box-none">
-            <Animated.View style={[styles.noticeContainer, animatedStyle]}>
-              <View style={styles.content}>
-                <View style={styles.header}>
-                  <TravisSignal 
-                    status={currentNotice.type === 'error' || currentNotice.type === 'warning' ? 'thinking' : 'tracking'} 
-                    size={40} 
-                  />
-                  <View style={styles.textContainer}>
-                    <Text style={styles.title}>{currentNotice.title}</Text>
-                    <Text style={styles.message}>{currentNotice.message}</Text>
-                  </View>
-                </View>
-
-                {currentNotice.actions && currentNotice.actions.length > 0 && (
+            <Animated.View
+              style={[
+                hasActions ? styles.sheetContainer : styles.toastContainer,
+                animatedStyle,
+              ]}
+            >
+              {hasActions ? (
+                <View style={styles.sheetContent}>
+                  <Text style={styles.sheetTitle}>{currentNotice.title}</Text>
+                  <Text style={styles.sheetMessage}>{currentNotice.message}</Text>
                   <View style={styles.actionRow}>
-                    {currentNotice.actions.map((action, i) => (
-                      <TouchableOpacity 
-                        key={i} 
+                    {currentNotice.actions?.map((action, i) => (
+                      <TouchableOpacity
+                        key={`${action.text}-${i}`}
                         style={[
-                          styles.actionButton, 
+                          styles.actionButton,
                           action.style === 'destructive' && styles.actionDestructive,
-                          action.style === 'cancel' && styles.actionCancel
+                          action.style === 'cancel' && styles.actionCancel,
                         ]}
                         onPress={() => {
                           action.onPress();
                           hideNotice();
                         }}
                       >
-                        <Text style={[
-                          styles.actionText,
-                          action.style === 'destructive' && styles.actionTextDestructive,
-                          action.style === 'cancel' && styles.actionTextCancel
-                        ]}>
+                        <Text
+                          style={[
+                            styles.actionText,
+                            action.style === 'destructive' && styles.actionTextDestructive,
+                            action.style === 'cancel' && styles.actionTextCancel,
+                          ]}
+                        >
                           {action.text.toUpperCase()}
                         </Text>
                       </TouchableOpacity>
                     ))}
                   </View>
-                )}
-              </View>
-              
-              {!currentNotice.actions && (
-                <TouchableOpacity style={styles.closeHandle} onPress={hideNotice}>
-                  <View style={styles.handleBar} />
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.toastContent}
+                  onPress={hideNotice}
+                  activeOpacity={0.9}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${currentNotice.title}. ${currentNotice.message}`}
+                >
+                  <View style={[styles.toastDot, { backgroundColor: toneColor }]} />
+                  <View style={styles.toastTextWrap}>
+                    <Text style={styles.toastTitle} numberOfLines={1}>
+                      {currentNotice.title}
+                    </Text>
+                    <Text style={styles.toastMessage} numberOfLines={2}>
+                      {currentNotice.message}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               )}
             </Animated.View>
@@ -151,55 +179,88 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+    justifyContent: 'flex-end',
+    paddingBottom: 10,
   },
-  noticeContainer: {
+  sheetContainer: {
     marginHorizontal: 16,
-    marginTop: Platform.OS === 'android' ? 20 : 0,
+    marginBottom: 8,
     backgroundColor: theme.colors.surface,
-    borderRadius: 24,
-    borderWidth: 2,
-    borderColor: theme.colors.textPrimary, // Ink Black border
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 8,
     overflow: 'hidden',
   },
-  content: {
-    padding: 20,
+  toastContainer: {
+    alignSelf: 'center',
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: 'rgba(22, 22, 24, 0.94)',
+    borderRadius: 16,
+    maxWidth: '92%',
+    minWidth: 220,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  header: {
+  sheetContent: {
+    padding: 16,
+  },
+  toastContent: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: 10,
   },
-  textContainer: {
+  toastDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 5,
+  },
+  toastTextWrap: {
     flex: 1,
-    marginLeft: 16,
   },
-  title: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: theme.colors.primary, // Vintage Red
-    letterSpacing: 1,
-    marginBottom: 4,
+  toastTitle: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 2,
   },
-  message: {
-    fontSize: 14,
-    fontWeight: '600',
+  toastMessage: {
+    color: 'rgba(255,255,255,0.86)',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  sheetTitle: {
+    fontSize: 13,
+    fontWeight: '800',
     color: theme.colors.textPrimary,
-    lineHeight: 20,
+    marginBottom: 6,
+  },
+  sheetMessage: {
+    fontSize: 13,
+    color: theme.colors.textPrimary,
+    lineHeight: 18,
   },
   actionRow: {
     flexDirection: 'row',
-    marginTop: 20,
-    gap: 12,
+    marginTop: 14,
+    gap: 10,
   },
   actionButton: {
     flex: 1,
-    height: 44,
+    height: 40,
     backgroundColor: theme.colors.textPrimary,
-    borderRadius: 12,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -213,24 +274,14 @@ const styles = StyleSheet.create({
   },
   actionText: {
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 1,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   actionTextCancel: {
     color: theme.colors.textSecondary,
   },
   actionTextDestructive: {
     color: '#FFFFFF',
-  },
-  closeHandle: {
-    alignItems: 'center',
-    paddingBottom: 10,
-  },
-  handleBar: {
-    width: 40,
-    height: 4,
-    backgroundColor: theme.colors.border,
-    borderRadius: 2,
   },
 });

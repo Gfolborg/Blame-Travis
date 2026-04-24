@@ -44,7 +44,7 @@ const ONBOARDING_STEPS = [
 ];
 
 const OnboardingScreen = () => {
-  const { profile, updateProfile } = useProfile();
+  const { updateProfile } = useProfile();
   const [step, setStep] = useState(0);
   const [homeCity, setHomeCity] = useState('');
   const [transportMode, setTransportMode] = useState('driving');

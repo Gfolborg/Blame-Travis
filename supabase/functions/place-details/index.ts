@@ -38,6 +38,13 @@ serve(async (req) => {
     })
 
     const data = await response.json()
+    if (!response.ok) {
+      return new Response(JSON.stringify(data), {
+        status: response.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     return new Response(JSON.stringify(data), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

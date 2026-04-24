@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,64 +7,85 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../../types/navigation';
 import { theme } from '../../theme';
 import { supabase } from '../../services/supabase';
 import { TravisSignal } from '../../components/TravisSignal';
+import { useNotice } from '../../components/TravisNotice';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'SignUp'>;
 
 const SignUpScreen = () => {
   const navigation = useNavigation<NavigationProp>();
+  const { showNotice } = useNotice();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const fullNameTrimmed = fullName.trim();
+  const emailTrimmed = email.trim();
+  const passwordTrimmed = password.trim();
+  const canSubmit = useMemo(
+    () => !loading && Boolean(fullNameTrimmed) && Boolean(emailTrimmed) && Boolean(passwordTrimmed),
+    [emailTrimmed, fullNameTrimmed, loading, passwordTrimmed],
+  );
+
   const handleSignUp = async () => {
-    if (!email || !password || !fullName) {
-      Alert.alert('MISSING INFO', 'Travis needs to know who you are and how to reach you.');
+    if (!fullNameTrimmed || !emailTrimmed || !passwordTrimmed) {
+      showNotice({
+        title: 'MISSING INFO',
+        message: "Travis: 'I need your name, email, and passphrase before we hit the open road.'",
+        type: 'warning',
+      });
       return;
     }
-    
-    setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-        },
-      },
-    });
 
-    if (error) {
-      Alert.alert('TRAVIS SAYS...', error.message);
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.signUp({
+        email: emailTrimmed,
+        password: passwordTrimmed,
+        options: {
+          data: {
+            full_name: fullNameTrimmed,
+          },
+        },
+      });
+
+      if (error) {
+        showNotice({
+          title: 'SIGN UP FAILED',
+          message: error.message,
+          type: 'error',
+        });
+        return;
+      }
+
+      showNotice({
+        title: 'ACCOUNT CREATED',
+        message: "Travis: 'Profile stamped. Check your inbox for next steps if confirmation is enabled.'",
+        type: 'success',
+      });
+    } finally {
       setLoading(false);
-    } else if (data.user) {
-      // Successfully signed up, navigation guard will handle the rest
     }
   };
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.header}>
             <TravisSignal status="tracking" size={100} />
             <Text style={styles.title}>Join the Expedition</Text>
-            <Text style={styles.subtitle}>Travis is ready to plan. Give him your details and let's get moving.</Text>
+            <Text style={styles.subtitle}>Travis is ready to plan. Give him your details and let us get moving.</Text>
           </View>
 
           <View style={styles.form}>
@@ -76,6 +97,7 @@ const SignUpScreen = () => {
                 placeholderTextColor={theme.colors.textSecondary}
                 value={fullName}
                 onChangeText={setFullName}
+                accessibilityLabel="Full name"
               />
             </View>
 
@@ -88,7 +110,10 @@ const SignUpScreen = () => {
                 value={email}
                 onChangeText={setEmail}
                 autoCapitalize="none"
+                autoCorrect={false}
                 keyboardType="email-address"
+                textContentType="emailAddress"
+                accessibilityLabel="Email address"
               />
             </View>
 
@@ -96,18 +121,22 @@ const SignUpScreen = () => {
               <Text style={styles.label}>PASSPHRASE</Text>
               <TextInput
                 style={styles.input}
-                placeholder="••••••••"
+                placeholder="********"
                 placeholderTextColor={theme.colors.textSecondary}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
+                textContentType="newPassword"
+                accessibilityLabel="Passphrase"
               />
             </View>
 
-            <TouchableOpacity 
-              style={[styles.signUpButton, loading && styles.buttonDisabled]}
+            <TouchableOpacity
+              style={[styles.signUpButton, !canSubmit && styles.buttonDisabled]}
               onPress={handleSignUp}
-              disabled={loading}
+              disabled={!canSubmit}
+              accessibilityRole="button"
+              accessibilityLabel="Start my journey"
             >
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
@@ -116,11 +145,15 @@ const SignUpScreen = () => {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.linkButton}
               onPress={() => navigation.navigate('Login')}
+              accessibilityRole="button"
+              accessibilityLabel="Log in instead"
             >
-              <Text style={styles.linkText}>ALREADY ON THE ROAD? <Text style={styles.linkHighlight}>LOG IN</Text></Text>
+              <Text style={styles.linkText}>
+                ALREADY ON THE ROAD? <Text style={styles.linkHighlight}>LOG IN</Text>
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
   Dimensions,
   Image,
@@ -27,21 +25,18 @@ import { RootStackParamList } from '../types/navigation';
 import { theme } from '../theme';
 import { TravisSignal } from '../components/TravisSignal';
 import { discoveryService } from '../services/discovery';
-import { supabase } from '../services/supabase';
 
 // SAFE MAP LOADING
 let MapView: any = null;
-let Marker: any = null;
 let Circle: any = null;
 let mapLoadError = false;
 
 try {
   const Maps = require('react-native-maps');
   MapView = Maps.default;
-  Marker = Maps.Marker;
   Circle = Maps.Circle;
   if (!MapView) mapLoadError = true;
-} catch (e) {
+} catch {
   mapLoadError = true;
 }
 
@@ -198,16 +193,61 @@ const AdventureRequestScreen = () => {
 
   const isConfigComplete = !!intensity && !!budget;
 
+  const handleResetToCurrentLocation = useCallback(async () => {
+    if (isLocating) return;
+    
+    try {
+      setIsLocating(true);
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setIsLocating(false);
+        return;
+      }
+
+      const lastKnown = await Location.getLastKnownPositionAsync({});
+      if (lastKnown) {
+        const fastRegion = {
+          latitude: lastKnown.coords.latitude,
+          longitude: lastKnown.coords.longitude,
+          latitudeDelta: 0.0922,
+          longitudeDelta: 0.0421,
+        };
+        setRegion(fastRegion);
+        if (!mapLoadError && isMapReady) mapRef.current?.animateToRegion(fastRegion, 800);
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const precisionRegion = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      };
+      
+      setRegion(precisionRegion);
+      if (!mapLoadError && isMapReady) {
+        mapRef.current?.animateToRegion(precisionRegion, 1200);
+      }
+    } catch {
+      console.warn('Failed to get user location');
+    } finally {
+      setIsLocating(false);
+    }
+  }, [isLocating, isMapReady]);
+
   useEffect(() => {
     if (isMapReady) {
       handleResetToCurrentLocation();
     }
-  }, [isMapReady]);
+  }, [isMapReady, handleResetToCurrentLocation]);
 
   const toggleSheet = () => {
     const nextSnap = currentSnap === 'COLLAPSED' ? 'FULL' : 'COLLAPSED';
     Animated.spring(sheetHeight, {
-      toValue: SNAP_POINTS[nextSnap],
+      toValue: SNAP_POINTS[nextSnap as keyof typeof SNAP_POINTS],
       useNativeDriver: false,
     }).start();
     currentSnapRef.current = nextSnap;
@@ -252,63 +292,12 @@ const AdventureRequestScreen = () => {
 
   const handleRegionChangeComplete = (newRegion: any) => {
     setRegion(newRegion);
-    // Note: handleMapInteraction is already called by onPanDrag/onPress for immediate response
     if (roamingMode === 'strict') {
-      // 0.3 factor ensures the circle fills roughly 30-40% of the screen
       const zoomBasedRadius = Math.round((newRegion.latitudeDelta * 111000) * 0.3);
       const clampedRadius = Math.max(500, Math.min(50000, zoomBasedRadius));
-      
-      // Use a smaller threshold (10%) for higher precision at high altitudes
       if (Math.abs(clampedRadius - radius) > radius * 0.1) {
         setRadius(clampedRadius);
       }
-    }
-  };
-
-  const handleResetToCurrentLocation = async () => {
-    if (isLocating) return;
-    
-    try {
-      setIsLocating(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setIsLocating(false);
-        return;
-      }
-
-      // 1. FAST SNAP: Try last known position first for instant result
-      const lastKnown = await Location.getLastKnownPositionAsync({});
-      if (lastKnown) {
-        const fastRegion = {
-          latitude: lastKnown.coords.latitude,
-          longitude: lastKnown.coords.longitude,
-          latitudeDelta: 0.0922,
-          longitudeDelta: 0.0421,
-        };
-        setRegion(fastRegion);
-        if (!mapLoadError && isMapReady) mapRef.current?.animateToRegion(fastRegion, 800);
-      }
-
-      // 2. PRECISION SNAP: Get fresh current position
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      const precisionRegion = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.0922,
-        longitudeDelta: 0.0421,
-      };
-      
-      setRegion(precisionRegion);
-      if (!mapLoadError && isMapReady) {
-        mapRef.current?.animateToRegion(precisionRegion, 1000);
-      }
-    } catch (e) {
-      console.warn('Could not reset to current location:', e);
-    } finally {
-      setIsLocating(false);
     }
   };
 
@@ -319,7 +308,7 @@ const AdventureRequestScreen = () => {
         coords: { lat: region.latitude, lng: region.longitude },
         radius: radius,
         days,
-        intensity: intensity!, // We know these are set because of isConfigComplete
+        intensity: intensity!, 
         budget: budget!,
         roamingMode,
         maxActivities,
@@ -344,7 +333,7 @@ const AdventureRequestScreen = () => {
       };
       setRegion(newRegion);
       if (!mapLoadError) mapRef.current?.animateToRegion(newRegion, 1500);
-    } catch (e) { console.error(e); } finally { setIsSurpriseLoading(false); }
+    } catch (_e) { console.error(_e); } finally { setIsSurpriseLoading(false); }
   };
 
   const displayDistance = useMemo(() => {
@@ -372,7 +361,6 @@ const AdventureRequestScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* 100% MAP BACKGROUND */}
       <View style={styles.mapContainerFull}>
         {mapLoadError ? (
           <View style={styles.mapFallback}>
@@ -408,7 +396,6 @@ const AdventureRequestScreen = () => {
           <Ionicons name="location" size={40} color={theme.colors.primary} />
         </View>
 
-        {/* RESET TO CURRENT LOCATION BUTTON */}
         <TouchableOpacity 
           style={[styles.locateButton, { bottom: SNAP_POINTS.COLLAPSED + 20 }]} 
           onPress={handleResetToCurrentLocation}
@@ -422,7 +409,6 @@ const AdventureRequestScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* FLOATING SEARCH */}
       <View style={[styles.floatingHeader, { paddingTop: insets.top + 10 }]}>
         <View style={styles.searchOverlayFloating}>
           <View style={styles.searchInputContainer}>
@@ -439,7 +425,6 @@ const AdventureRequestScreen = () => {
             </TouchableOpacity>
           </View>
 
-          {/* SEARCH SUGGESTIONS */}
           {(suggestions.length > 0 || isSearchingList) && (
             <View style={styles.suggestionsContainer}>
               {isSearchingList && suggestions.length === 0 && (
@@ -467,7 +452,6 @@ const AdventureRequestScreen = () => {
         </View>
       </View>
 
-      {/* EXPANDABLE BRIEFING SHEET */}
       <Animated.View 
         style={[styles.bottomSheet, { height: sheetHeight, paddingBottom: insets.bottom }]}
         {...panResponder.panHandlers}

@@ -10,11 +10,15 @@ interface StopCardProps {
   renderRightAction?: () => React.ReactNode;
 }
 
+/**
+ * StopCard — The editorial-style stop card.
+ * Features the 'Ink Bleed' aesthetic with deep shadows and high-contrast typography.
+ */
 const StopCardComponent: React.FC<StopCardProps> = ({ stop, onPress, renderRightAction }) => {
   return (
     <TouchableOpacity 
       style={styles.stopCard} 
-      activeOpacity={onPress ? 0.8 : 1} 
+      activeOpacity={onPress ? 0.85 : 1} 
       onPress={onPress}
       disabled={!onPress}
     >
@@ -27,19 +31,30 @@ const StopCardComponent: React.FC<StopCardProps> = ({ stop, onPress, renderRight
           </View>
         )}
       </View>
+      
       <View style={styles.cardDetails}>
         <View style={styles.cardHeader}>
-          <Text style={styles.stopName} numberOfLines={1}>{stop.name}</Text>
-          {renderRightAction && renderRightAction()}
+          <Text style={styles.stopName} numberOfLines={1}>
+            {stop.name}
+          </Text>
+          {renderRightAction && (
+            <View style={styles.actionWrap}>
+              {renderRightAction()}
+            </View>
+          )}
         </View>
-        <View style={styles.categoryBadge}>
-          <Text style={styles.categoryText}>{(stop.category || 'SPOT').toUpperCase()}</Text>
-        </View>
+
         {stop.why_travis_picked_this && (
           <Text style={styles.insightText} numberOfLines={2}>
             "{stop.why_travis_picked_this}"
           </Text>
         )}
+
+        <View style={styles.footer}>
+          <Text style={styles.categoryText}>
+            {(stop.category || 'SPOT').toUpperCase()}
+          </Text>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -51,69 +66,68 @@ const styles = StyleSheet.create({
   stopCard: { 
     flexDirection: 'row', 
     backgroundColor: theme.colors.surface, 
-    borderRadius: 20, 
-    padding: theme.spacing.md, 
-    marginBottom: theme.spacing.md, 
-    elevation: 2, 
+    borderRadius: 24, 
+    padding: 16, 
+    marginBottom: 20, 
     borderWidth: 1, 
-    borderColor: theme.colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    borderColor: 'rgba(0,0,0,0.03)',
+    ...theme.shadows.float,
   },
   imageContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 15,
+    width: 90,
+    height: 90,
+    borderRadius: 18,
     overflow: 'hidden',
+    backgroundColor: theme.colors.surfaceElevated,
   },
   image: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
   },
   imagePlaceholder: { 
-    width: 80, 
-    height: 80, 
-    backgroundColor: theme.colors.surfaceElevated, 
-    borderRadius: 15, 
+    flex: 1,
     alignItems: 'center', 
     justifyContent: 'center' 
   },
   cardDetails: { 
     flex: 1, 
-    paddingLeft: theme.spacing.md, 
-    justifyContent: 'center' 
+    paddingLeft: 16, 
+    justifyContent: 'space-between',
   },
   cardHeader: { 
     flexDirection: 'row', 
     alignItems: 'center', 
     justifyContent: 'space-between', 
-    marginBottom: 8 
   },
   stopName: { 
+    flex: 1,
     color: theme.colors.textPrimary, 
+    fontFamily: theme.typography.fonts.black,
     fontSize: 18, 
-    fontWeight: '800', 
-    flex: 1 
+    letterSpacing: -0.5,
   },
-  categoryBadge: { 
-    backgroundColor: 'rgba(183, 28, 28, 0.1)', 
-    alignSelf: 'flex-start', 
-    paddingHorizontal: 8, 
-    paddingVertical: 2, 
-    borderRadius: 6 
-  },
-  categoryText: { 
-    color: theme.colors.primary, 
-    fontSize: 10, 
-    fontWeight: '800' 
+  actionWrap: {
+    marginLeft: 8,
   },
   insightText: {
-    color: theme.colors.textSecondary,
-    fontSize: 12,
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fonts.narrative,
+    fontSize: 13,
     fontStyle: 'italic',
     marginTop: 8,
-    lineHeight: 16,
+    lineHeight: 18,
+  },
+  footer: {
+    marginTop: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
+  categoryText: { 
+    color: theme.colors.textSecondary, 
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 9, 
+    letterSpacing: 1.5,
   },
 });

@@ -26,7 +26,7 @@ const REMOTE_PUSH_ENABLED = false;
 
 type LocalScheduleMap = Record<string, string[]>;
 type PermissionStatus = 'granted' | 'denied' | 'undetermined';
-type NoticePresenter = (notice: {
+type NoticePresenter = (_notice: {
   title: string;
   message: string;
   type?: 'info' | 'warning' | 'error' | 'success';

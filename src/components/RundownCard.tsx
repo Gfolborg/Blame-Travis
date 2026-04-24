@@ -10,8 +10,26 @@ interface RundownCardProps {
   details: PlaceDetails;
 }
 
+const toPriceGlyph = (priceLevel?: string): string | null => {
+  if (!priceLevel) return null;
+  switch (priceLevel) {
+    case 'PRICE_LEVEL_FREE':
+      return 'Free';
+    case 'PRICE_LEVEL_INEXPENSIVE':
+      return '$';
+    case 'PRICE_LEVEL_MODERATE':
+      return '$$';
+    case 'PRICE_LEVEL_EXPENSIVE':
+      return '$$$';
+    case 'PRICE_LEVEL_VERY_EXPENSIVE':
+      return '$$$$';
+    default:
+      return '$';
+  }
+};
+
 export const RundownCard: React.FC<RundownCardProps> = ({ details }) => {
-  const photoUris = placesService.getPhotoUris(details.photos.slice(0, 5));
+  const priceGlyph = toPriceGlyph(details.priceLevel);
 
   return (
     <View style={styles.container}>
@@ -23,7 +41,7 @@ export const RundownCard: React.FC<RundownCardProps> = ({ details }) => {
         style={styles.photoCarousel}
       >
         {details.photos.length > 0 ? (
-          details.photos.slice(0, 5).map((photo, index) => (
+          details.photos.slice(0, 5).map((photo) => (
             <Image 
               key={photo.name}
               source={{ uri: placesService.getPhotoUri(photo.name, 1000) }}
@@ -44,9 +62,9 @@ export const RundownCard: React.FC<RundownCardProps> = ({ details }) => {
           <Text style={styles.ratingText}>{details.rating || 'N/A'}</Text>
           <Text style={styles.reviewCount}>({details.userRatingCount || 0})</Text>
         </View>
-        {details.priceLevel && (
+        {priceGlyph && (
           <Text style={styles.priceLevel}>
-            {'$'.repeat(parseInt(details.priceLevel.replace('PRICE_LEVEL_', '')) || 1)}
+            {priceGlyph}
           </Text>
         )}
       </View>

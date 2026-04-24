@@ -104,17 +104,20 @@ const matchesGroupFilter = (activity: ExploreActivity, groupTypes: ExploreFilter
 
   const categorySet = toLowerSet(activity.categories);
   const tagSet = toLowerSet(activity.tags);
+  const tokens = new Set([...categorySet, ...tagSet]);
+  const hasAny = (values: string[]) => values.some(value => tokens.has(value));
+
   return groupTypes.some(group => {
     if (group === 'family') {
       return activity.familyFriendly === true || categorySet.has('family') || tagSet.has('family');
     }
     if (group === 'solo') {
-      return categorySet.has('solo') || tagSet.has('solo') || true;
+      return hasAny(['solo', 'self_guided', 'museum', 'art_gallery', 'park', 'hiking']);
     }
     if (group === 'couple') {
-      return categorySet.has('romantic') || tagSet.has('couple') || true;
+      return hasAny(['romantic', 'couple', 'date_night', 'spa', 'scenic_viewpoint']);
     }
-    return categorySet.has('group') || tagSet.has('friends') || true;
+    return hasAny(['group', 'friends', 'night_club', 'live_music_venue', 'amusement_park', 'bowling_alley']);
   });
 };
 
@@ -278,12 +281,41 @@ export const exploreService = {
     const userId = await getAuthedUserId();
     if (!userId) return;
 
+    let dbActivityId: string | null = null;
+    const inputId = params.activityId;
+    const isUuid = inputId ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(inputId) : false;
+
+    if (inputId && isUuid) {
+      dbActivityId = inputId;
+    } else if (inputId) {
+      // Not a UUID, try to resolve from canonical_key
+      const canonicalKey = inputId.startsWith('provider:') 
+          ? inputId.replace('provider:', '') 
+          : inputId;
+          
+      const { data } = await supabase
+          .from('activities')
+          .select('id')
+          .eq('canonical_key', canonicalKey)
+          .single();
+      
+      if (data) {
+        dbActivityId = data.id;
+      }
+    }
+
+    const eventMetadata = { ...(params.metadata || {}) };
+    if (inputId && !dbActivityId) {
+      // If we couldn't resolve a UUID, store the raw ID in metadata for audit
+      eventMetadata.raw_activity_id = inputId;
+    }
+
     const { error } = await supabase.from('activity_events').insert({
       user_id: userId,
-      activity_id: params.activityId || null,
+      activity_id: dbActivityId,
       search_session_id: params.searchSessionId || null,
       event_name: params.eventName,
-      metadata: (params.metadata || {}) as any,
+      metadata: eventMetadata as any,
     });
 
     if (error) {

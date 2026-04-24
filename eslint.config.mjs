@@ -27,6 +27,7 @@ export default [
         ...globals.browser,
         ...globals.node,
         ...globals.es2021,
+        ...globals.jest,
       },
     },
     rules: {

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { Tables } from '../types/database';
 import { Session } from '@supabase/supabase-js';
@@ -27,18 +27,40 @@ export const ProfileProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProfile = async () => {
+  const getSessionSafe = useCallback(async (): Promise<Session | null> => {
+    const { data, error: sessionError } = await supabase.auth.getSession();
+    if (!sessionError) {
+      return data.session;
+    }
+
+    const message = sessionError.message ?? '';
+    const isInvalidRefreshToken =
+      message.includes('Invalid Refresh Token') || message.includes('Already Used');
+
+    if (isInvalidRefreshToken) {
+      // Clear stale local auth state so the app can continue unauthenticated.
+      await supabase.auth.signOut({ scope: 'local' });
+      return null;
+    }
+
+    throw sessionError;
+  }, []);
+
+  const fetchProfile = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Attempt to get real session
-      const { data: { session: realSession } } = await supabase.auth.getSession();
+      const realSession = await getSessionSafe();
       setSession(realSession);
 
-      const userId = realSession?.user.id || GUEST_ID;
+      if (!realSession?.user?.id || realSession.user.id === GUEST_ID) {
+        setProfile(null);
+        return;
+      }
 
-      // Fetch profile (Real or Guest)
+      const userId = realSession.user.id;
+
       const { data, error: fetchError } = await supabase
         .from('profiles')
         .select('*')
@@ -46,7 +68,7 @@ export const ProfileProvider: React.FC<{ children: ReactNode }> = ({ children })
         .single();
 
       if (fetchError && fetchError.code === 'PGRST116') {
-        // Profile doesn't exist yet, create a default one for this ID
+        // Create a default row only for authenticated users.
         const defaultProfile: any = {
           id: userId,
           home_city: 'Austin, TX',
@@ -61,8 +83,16 @@ export const ProfileProvider: React.FC<{ children: ReactNode }> = ({ children })
           .insert(defaultProfile)
           .select()
           .single();
-        
-        if (insertError) throw insertError;
+
+        if (insertError) {
+          // If RLS blocks bootstrap insert, keep app usable and avoid hard-failing startup.
+          if (insertError.message?.toLowerCase().includes('row-level security')) {
+            setProfile(null);
+            setError('Profile setup is restricted by current security policy. Please sign out and sign back in.');
+            return;
+          }
+          throw insertError;
+        }
         setProfile(newProfile);
       } else if (fetchError) {
         throw fetchError;
@@ -76,10 +106,13 @@ export const ProfileProvider: React.FC<{ children: ReactNode }> = ({ children })
     } finally {
       setLoading(false);
     }
-  };
+  }, [getSessionSafe]);
 
   const updateProfile = async (updates: Partial<Profile>) => {
-    const userId = session?.user.id || GUEST_ID;
+    const userId = session?.user?.id;
+    if (!userId || userId === GUEST_ID) {
+      throw new Error('You must be signed in to update profile settings.');
+    }
     try {
       const { error: updateError } = await supabase
         .from('profiles')
@@ -109,7 +142,7 @@ export const ProfileProvider: React.FC<{ children: ReactNode }> = ({ children })
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [fetchProfile]);
 
   // Always consider onboarded for guest/dev mode
   const isOnboarded = true;

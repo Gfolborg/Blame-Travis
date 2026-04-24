@@ -15,7 +15,7 @@ Required user flow:
 2. Refine using high-impact filters.
 3. Switch between list and map without context loss.
 4. Inspect detailed activity facts.
-5. Save to itinerary.
+5. Save/curate into satchel or assign to itinerary day.
 6. Organize itinerary by day.
 7. Trigger booking intent and outcome tracking.
 8. Re-engage users with meaningful reminders.
@@ -59,6 +59,7 @@ Required for every touched screen:
 - error state
 - offline state
 - denied-permission state
+- safe map degradation for missing coordinates when map mode is present
 
 Interaction requirements:
 - clear primary action

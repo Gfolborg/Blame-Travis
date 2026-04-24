@@ -17,6 +17,7 @@ export const TabNavigator = () => {
 
   return (
     <Tab.Navigator
+      backBehavior="history"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: false,

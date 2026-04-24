@@ -9,7 +9,7 @@ This file is the top-level policy source for agent behavior in this repository. 
 Blame Travis is a **travel activity discovery mobile app** that helps users:
 1. Search and browse things to do.
 2. Filter and compare options quickly.
-3. Save activities into an itinerary.
+3. Save activities into a satchel and/or assign them into an itinerary day.
 4. Start booking flows with provider handoff.
 5. Return and complete experiences with Travis-led motivation.
 
@@ -86,6 +86,7 @@ Mandatory UX behavior:
 - all key screens define default/loading/empty/error/offline/denied states
 - no native `Alert.alert` for core product messaging
 - map/list views remain state-synchronized
+- map mode must degrade safely when itinerary stops have missing coordinates
 - no dead-end no-result pages
 
 Mandatory accessibility rules:

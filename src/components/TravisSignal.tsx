@@ -1,13 +1,7 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withTiming,
-  withSequence,
-  Easing,
-} from 'react-native-reanimated';
+import { MotiView } from 'moti';
+import { User, Search, AlertCircle } from 'lucide-react-native';
 import { theme } from '../theme';
 
 export type TravisStatus = 'idle' | 'thinking' | 'alert' | 'tracking';
@@ -15,62 +9,21 @@ export type TravisStatus = 'idle' | 'thinking' | 'alert' | 'tracking';
 interface TravisSignalProps {
   status?: TravisStatus;
   size?: number;
+  editorial?: boolean; // Toggles the luxury magazine aesthetic
 }
 
 /**
  * TravisSignal — The visual anchor for Travis.
- * Represents his presence and current 'mental' state.
+ * Represents his presence and current 'mental' state using a character silhouette placeholder.
  */
 export const TravisSignal: React.FC<TravisSignalProps> = ({ 
   status = 'idle', 
-  size = 40 
+  size = 40,
+  editorial = true
 }) => {
-  const opacity = useSharedValue(0.6);
-  const scale = useSharedValue(1);
-
-  useEffect(() => {
-    // Reset values on status change
-    opacity.value = 0.6;
-    scale.value = 1;
-
-    let duration = 2000;
-    let pulseScale = 1.2;
-
-    if (status === 'thinking') {
-      duration = 800;
-      pulseScale = 1.4;
-    } else if (status === 'alert') {
-      duration = 400;
-      pulseScale = 1.5;
-    } else if (status === 'tracking') {
-      duration = 1500;
-      pulseScale = 1.3;
-    }
-
-    opacity.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: duration / 2, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0.4, { duration: duration / 2, easing: Easing.inOut(Easing.ease) })
-      ),
-      -1,
-      true
-    );
-
-    scale.value = withRepeat(
-      withTiming(pulseScale, { duration, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true
-    );
-  }, [status]);
-
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: opacity.value,
-      transform: [{ scale: scale.value }],
-    };
-  });
-
   const getStatusColor = () => {
+    if (editorial) return theme.colors.textPrimary; // Pure Midnight Ink for editorial mode
+    
     switch (status) {
       case 'alert':
         return theme.colors.error;
@@ -80,35 +33,47 @@ export const TravisSignal: React.FC<TravisSignalProps> = ({
         return theme.colors.primary;
       case 'idle':
       default:
-        return theme.colors.primary;
+        return theme.colors.textPrimary;
     }
   };
 
+  const getIcon = () => {
+    if (status === 'thinking' || status === 'tracking') return <Search size={size * 0.55} color={theme.colors.surface} strokeWidth={1.5} />;
+    if (status === 'alert') return <AlertCircle size={size * 0.55} color={theme.colors.surface} strokeWidth={1.5} />;
+    return <User size={size * 0.6} color={theme.colors.surface} strokeWidth={1.5} />;
+  };
+
+  const isAnimated = status === 'thinking' || status === 'tracking';
+
   return (
     <View style={[styles.container, { width: size, height: size }]}>
-      <Animated.View
+      <MotiView
+        from={{
+          scale: 1,
+          rotate: '0deg',
+        }}
+        animate={{
+          scale: isAnimated ? 1.05 : 1,
+          rotate: status === 'thinking' ? '-3deg' : '0deg',
+        }}
+        transition={{
+          loop: isAnimated,
+          type: 'timing',
+          duration: status === 'thinking' ? 800 : 2000,
+        }}
         style={[
-          styles.outerCircle,
+          styles.silhouetteBg,
+          editorial && styles.editorialShadow, // Softer shadow for editorial mode
           {
             width: size,
             height: size,
             borderRadius: size / 2,
             backgroundColor: getStatusColor(),
           },
-          animatedStyle,
         ]}
-      />
-      <View
-        style={[
-          styles.innerCircle,
-          {
-            width: size * 0.6,
-            height: size * 0.6,
-            borderRadius: (size * 0.6) / 2,
-            backgroundColor: getStatusColor(),
-          },
-        ]}
-      />
+      >
+        {getIcon()}
+      </MotiView>
     </View>
   );
 };
@@ -118,13 +83,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  outerCircle: {
-    position: 'absolute',
-    opacity: 0.4,
+  silhouetteBg: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#1C1C1E',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  innerCircle: {
-    opacity: 1,
-    borderWidth: 2,
-    borderColor: 'rgba(28, 28, 30, 0.1)',
-  },
+  editorialShadow: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 4,
+  }
 });

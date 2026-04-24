@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,46 +7,64 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../../types/navigation';
 import { theme } from '../../theme';
 import { supabase } from '../../services/supabase';
 import { TravisSignal } from '../../components/TravisSignal';
+import { useNotice } from '../../components/TravisNotice';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 
 const LoginScreen = () => {
   const navigation = useNavigation<NavigationProp>();
+  const { showNotice } = useNotice();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async () => {
-    if (!email || !password) return;
-    
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+  const emailTrimmed = email.trim();
+  const passwordTrimmed = password.trim();
+  const canSubmit = useMemo(
+    () => !loading && Boolean(emailTrimmed) && Boolean(passwordTrimmed),
+    [emailTrimmed, loading, passwordTrimmed],
+  );
 
-    if (error) {
-      Alert.alert('TRAVIS SAYS...', error.message);
+  const handleLogin = async () => {
+    if (!emailTrimmed || !passwordTrimmed) {
+      showNotice({
+        title: 'MISSING INFO',
+        message: "Travis: 'I need both your email and passphrase before I can open the desk.'",
+        type: 'warning',
+      });
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailTrimmed,
+        password: passwordTrimmed,
+      });
+
+      if (error) {
+        showNotice({
+          title: 'LOGIN FAILED',
+          message: error.message,
+          type: 'error',
+        });
+      }
+    } finally {
       setLoading(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
           <View style={styles.header}>
@@ -65,7 +83,10 @@ const LoginScreen = () => {
                 value={email}
                 onChangeText={setEmail}
                 autoCapitalize="none"
+                autoCorrect={false}
                 keyboardType="email-address"
+                textContentType="emailAddress"
+                accessibilityLabel="Email address"
               />
             </View>
 
@@ -73,31 +94,35 @@ const LoginScreen = () => {
               <Text style={styles.label}>PASSPHRASE</Text>
               <TextInput
                 style={styles.input}
-                placeholder="••••••••"
+                placeholder="********"
                 placeholderTextColor={theme.colors.textSecondary}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
+                textContentType="password"
+                accessibilityLabel="Passphrase"
               />
             </View>
 
-            <TouchableOpacity 
-              style={[styles.loginButton, loading && styles.buttonDisabled]}
+            <TouchableOpacity
+              style={[styles.loginButton, !canSubmit && styles.buttonDisabled]}
               onPress={handleLogin}
-              disabled={loading}
+              disabled={!canSubmit}
+              accessibilityRole="button"
+              accessibilityLabel="Check my desk"
             >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.buttonText}>CHECK MY DESK</Text>
-              )}
+              {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>CHECK MY DESK</Text>}
             </TouchableOpacity>
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.linkButton}
               onPress={() => navigation.navigate('SignUp')}
+              accessibilityRole="button"
+              accessibilityLabel="Join Travis"
             >
-              <Text style={styles.linkText}>NEW TO THE ROAD? <Text style={styles.linkHighlight}>JOIN TRAVIS</Text></Text>
+              <Text style={styles.linkText}>
+                NEW TO THE ROAD? <Text style={styles.linkHighlight}>JOIN TRAVIS</Text>
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -109,7 +134,7 @@ const LoginScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background, // Paper (#F4EFE6)
+    backgroundColor: theme.colors.background,
   },
   safeArea: {
     flex: 1,
@@ -124,7 +149,7 @@ const styles = StyleSheet.create({
     marginBottom: 48,
   },
   title: {
-    color: theme.colors.textPrimary, // Ink (#1C1C1E)
+    color: theme.colors.textPrimary,
     fontSize: 28,
     fontWeight: '900',
     marginTop: 24,
@@ -160,7 +185,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   loginButton: {
-    backgroundColor: theme.colors.primary, // Vintage Red (#B71C1C)
+    backgroundColor: theme.colors.primary,
     paddingVertical: 18,
     borderRadius: 30,
     alignItems: 'center',

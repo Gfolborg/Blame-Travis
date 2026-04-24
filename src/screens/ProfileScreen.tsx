@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
 import { useNotice } from '../components/TravisNotice';
 import { useProfile } from '../hooks/useProfile';
@@ -36,10 +36,25 @@ const ProfileScreen = () => {
     }
   };
 
-  if (loading || !profile) {
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <View style={styles.authRequiredContainer}>
+        <Text style={styles.title}>PROFILE</Text>
+        <Text style={styles.authRequiredTitle}>Guest Testing Mode</Text>
+        <Text style={styles.authRequiredSubtitle}>
+          Auth is disabled for QA right now. Local test data is active on this device.
+        </Text>
+        <TouchableOpacity style={styles.primaryButton} disabled>
+          <Text style={styles.primaryButtonText}>Auth Deferred</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -132,6 +147,38 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.sm,
     marginTop: theme.spacing.lg,
     lineHeight: 20,
+  },
+  authRequiredContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+    padding: theme.spacing.lg,
+    justifyContent: 'center',
+  },
+  authRequiredTitle: {
+    color: theme.colors.textPrimary,
+    fontSize: theme.typography.sizes.xl,
+    fontWeight: '700',
+    marginTop: theme.spacing.lg,
+  },
+  authRequiredSubtitle: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.typography.sizes.md,
+    lineHeight: 22,
+    marginTop: theme.spacing.sm,
+    marginBottom: theme.spacing.xl,
+  },
+  primaryButton: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.lg,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: theme.typography.sizes.md,
+    fontWeight: '700',
   },
 });
 

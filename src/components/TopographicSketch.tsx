@@ -38,11 +38,11 @@ const SketchLine = ({ delay, size, ...pos }: any) => {
       -1,
       true
     ));
-  }, []);
+  }, [delay, progress]);
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
-      opacity: interpolate(progress.value, [0, 0.5, 1], [0.05, 0.15, 0.08]),
+      opacity: interpolate(progress.value, [0, 0.5, 1], [0.03, 0.08, 0.04]),
       transform: [
         { scale: interpolate(progress.value, [0, 1], [0.98, 1.02]) },
         { rotate: `${pos.rotate || 0}deg` }
@@ -65,9 +65,8 @@ const SketchLine = ({ delay, size, ...pos }: any) => {
 const styles = StyleSheet.create({
   line: {
     position: 'absolute',
-    borderWidth: 2, // Thicker line
+    borderWidth: 1, // Subtle contour line
     borderColor: theme.colors.textPrimary, // Ink Black
-    borderStyle: 'dashed',
+    borderStyle: 'solid',
   },
 });
-

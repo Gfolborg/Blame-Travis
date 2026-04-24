@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Image, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import Animated, { 
   useSharedValue, 
@@ -8,12 +8,9 @@ import Animated, {
   withSpring, 
   withSequence,
   withDelay,
-  Easing,
-  runOnJS
+  Easing
 } from 'react-native-reanimated';
 import { theme } from '../theme';
-
-const { width, height } = Dimensions.get('window');
 
 const SplashScreen = () => {
   const navigation = useNavigation();
@@ -70,7 +67,7 @@ const SplashScreen = () => {
     }, 3500);
 
     return () => clearTimeout(timer);
-  }, [navigation]);
+  }, [navigation, bgOpacity, bgRotate, bgScale, footerOpacity, logoOpacity, logoScale, shakeOffset]);
 
   const bgStyle = useAnimatedStyle(() => ({
     opacity: bgOpacity.value,

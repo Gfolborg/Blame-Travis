@@ -4,18 +4,18 @@
  */
 
 export const palette = {
-  // Base Colors
-  ink: '#1C1C1E',
-  paper: '#F4EFE6',
+  // Base Colors - Editorial Nomad (Luxury & Minimalist)
+  ink: '#1A1A1A',
+  paper: '#F9F9FB', // Very light gray backdrop
   white: '#FFFFFF',
-  softGray: '#E0DDD5',
-  mediumGray: '#9E9C96',
-  lightGray: '#D1CEC7',
+  softGray: '#F2F2F5',
+  mediumGray: '#999999',
+  lightGray: '#E5E5E5',
 
-  // Brand Colors (Ink Stamps)
-  vintageRed: '#B71C1C',
-  vintageRedDark: '#7F0000',
-  vintageRedLight: '#F05545',
+  // Brand Colors - Editorial Nomad (Classic Black)
+  vintageRed: '#1A1A1A',
+  vintageRedDark: '#000000',
+  vintageRedLight: '#444444',
 
   // Status Colors
   success: '#2E7D32',
@@ -24,8 +24,9 @@ export const palette = {
   info: '#1565C0',
 
   // Transparent variants
-  overlay: 'rgba(28, 28, 30, 0.6)',
+  overlay: 'rgba(255, 255, 255, 0.9)',
   glass: 'rgba(255, 255, 255, 0.7)',
+  inkGlow: 'rgba(26, 26, 26, 0.05)',
 };
 
 export const spacing = {
@@ -33,9 +34,9 @@ export const spacing = {
   sm: 8,
   md: 16,
   lg: 24,
-  xl: 32,
-  xxl: 48,
-  huge: 64,
+  xl: 40,
+  xxl: 64,
+  huge: 80,
 };
 
 export const roundness = {
@@ -43,32 +44,61 @@ export const roundness = {
   xs: 2,
   sm: 4,
   md: 8,
-  lg: 12,
-  xl: 20,
+  lg: 16,
+  xl: 24,
   full: 9999,
 };
 
 export const typography = {
   fonts: {
-    bold: 'System',
-    medium: 'System',
-    regular: 'System',
+    narrative: 'Inter_300Light',
+    narrativeMedium: 'Inter_400Regular',
+    narrativeBold: 'Inter_600SemiBold',
+    technical: 'Inter_400Regular',
+    technicalMedium: 'Inter_600SemiBold',
+    technicalBold: 'Inter_700Bold',
+    bold: 'Inter_700Bold',
+    black: 'Inter_900Black',
+    medium: 'Inter_500Medium',
+    regular: 'Inter_400Regular',
+    light: 'Inter_300Light',
     mono: 'System',
   },
   sizes: {
     xs: 12,
     sm: 14,
     md: 16,
-    lg: 18,
-    xl: 24,
-    xxl: 32,
-    display: 48,
+    lg: 20,
+    xl: 28,
+    xxl: 40,
+    display: 56,
   },
   lineHeights: {
-    tight: 1.2,
+    tight: 1.1,
     normal: 1.5,
     loose: 1.8,
   },
+};
+
+export const shadows = {
+  card: {
+    distance: 20,
+    startColor: 'rgba(0, 0, 0, 0.03)',
+    endColor: 'rgba(0, 0, 0, 0)',
+    offset: [0, 10] as [number, number],
+  },
+  float: {
+    distance: 40,
+    startColor: 'rgba(0, 0, 0, 0.06)',
+    endColor: 'rgba(0, 0, 0, 0)',
+    offset: [0, 20] as [number, number],
+  },
+  pressed: {
+    distance: 4,
+    startColor: 'rgba(0, 0, 0, 0.1)',
+    endColor: 'rgba(0, 0, 0, 0)',
+    offset: [0, 2] as [number, number],
+  }
 };
 
 export const theme = {
@@ -91,6 +121,7 @@ export const theme = {
   spacing,
   roundness,
   typography,
+  shadows,
 };
 
 export type Theme = typeof theme;

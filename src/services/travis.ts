@@ -74,7 +74,7 @@ export const travisService = {
       }
 
       return data.anchors;
-    } catch (e) {
+    } catch (_e) {
       return [{ ...start, dayStart: 1, dayEnd: days, name: 'Starting Point' }];
     }
   },
@@ -89,8 +89,8 @@ export const travisService = {
       });
       if (error) throw error;
       return data?.blueprint || [];
-    } catch (e) {
-      console.error('Itinerary structure planning failed:', e);
+    } catch (_e) {
+      console.error('Itinerary structure planning failed:', _e);
       // Basic static fallback if AI fails
       return Array.from({ length: params.days }, (_, i) => ({
         day: i + 1,
