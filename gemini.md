@@ -49,6 +49,13 @@ MVP excludes:
 - uncontrolled filter sprawl
 - ungrounded AI itinerary generation
 
+## 4.1 Itinerary Targeting Discipline
+
+- Auto-create an itinerary only when none exists.
+- When itineraries exist, add flows must select an existing itinerary target before day assignment.
+- Persist the last selected itinerary target and reuse it until changed.
+- Enforce a maximum of 5 non-archived itineraries; show soft warning only on attempted creation beyond that limit.
+
 ## 5. UI/UX Standards
 
 Required for every touched screen:

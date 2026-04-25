@@ -51,6 +51,14 @@ const GUEST_USER_ID = 'guest-local';
 const DAY_CAPACITY_THRESHOLD = 6;
 const MEDIUM_DISTANCE_THRESHOLD = 15;
 const HIGH_DISTANCE_THRESHOLD = 30;
+const MAX_ACTIVE_ITINERARIES = 5;
+
+export const ITINERARY_LIMIT_ERROR_CODE = 'ITINERARY_LIMIT_REACHED' as const;
+export type ItineraryLimitError = Error & {
+  code: typeof ITINERARY_LIMIT_ERROR_CODE;
+  count: number;
+  max: number;
+};
 
 export const reorderWithIndices = <T>(values: T[], fromIndex: number, toIndex: number): T[] => {
   if (fromIndex < 0 || fromIndex >= values.length) return values;
@@ -173,6 +181,20 @@ export const buildItinerarySummary = (
 
 const getSnapshotKey = (userId: string) => `blame_travis:itinerary_snapshot:${userId}`;
 const GUEST_PLANNER_KEY = 'blame_travis:guest_itinerary_planner:v1';
+const getPreferredAddTargetKey = (userId: string) => `blame_travis:preferred_add_target:${userId}`;
+
+const createItineraryLimitError = (count: number): ItineraryLimitError => {
+  const error = new Error(`You can keep up to ${MAX_ACTIVE_ITINERARIES} itineraries at a time.`) as ItineraryLimitError;
+  error.code = ITINERARY_LIMIT_ERROR_CODE;
+  error.count = count;
+  error.max = MAX_ACTIVE_ITINERARIES;
+  return error;
+};
+
+export const isItineraryLimitError = (error: unknown): error is ItineraryLimitError =>
+  Boolean(error) &&
+  typeof error === 'object' &&
+  (error as Partial<ItineraryLimitError>).code === ITINERARY_LIMIT_ERROR_CODE;
 
 const getAuthedUserId = async (): Promise<string | null> => {
   const { data, error } = await supabase.auth.getSession();
@@ -256,6 +278,30 @@ const buildDays = (items: ItineraryActivityItem[]): ItineraryDay[] => {
     }));
 };
 
+export const compactDaysAfterRemoval = (days: ItineraryDay[], removedDayIndex: number): ItineraryDay[] =>
+  days
+    .map(day => {
+      if (day.dayIndex === removedDayIndex) {
+        return null;
+      }
+      if (day.dayIndex < removedDayIndex) {
+        return {
+          ...day,
+          items: day.items.map(item => ({ ...item })),
+        };
+      }
+
+      return {
+        dayIndex: day.dayIndex - 1,
+        items: day.items.map(item => ({
+          ...item,
+          dayIndex: Math.max(1, item.dayIndex - 1),
+        })),
+      };
+    })
+    .filter((day): day is ItineraryDay => Boolean(day))
+    .sort((a, b) => a.dayIndex - b.dayIndex);
+
 const computeWarnings = (days: ItineraryDay[]): ItineraryWarnings => {
   const distanceUnit = inferDistanceUnit();
   const dayConflicts = computeDayConflicts(days);
@@ -317,6 +363,27 @@ const readGuestPlanner = async (): Promise<GuestPlannerEnvelope> => {
       activeItineraryId: null,
       bundles: [],
     };
+  }
+};
+
+const countGuestSelectableItineraries = (store: GuestPlannerEnvelope): number =>
+  store.bundles.filter(bundle => bundle.header.status !== 'archived').length;
+
+const enforceGuestItineraryLimit = (store: GuestPlannerEnvelope): void => {
+  const count = countGuestSelectableItineraries(store);
+  if (count >= MAX_ACTIVE_ITINERARIES) {
+    throw createItineraryLimitError(count);
+  }
+};
+
+const preferredTargetStorageKeyForUser = (userId: string | null): string =>
+  getPreferredAddTargetKey(userId || GUEST_USER_ID);
+
+const clearPreferredTargetIfMatches = async (userId: string | null, itineraryId: string): Promise<void> => {
+  const key = preferredTargetStorageKeyForUser(userId);
+  const current = await AsyncStorage.getItem(key);
+  if (current === itineraryId) {
+    await AsyncStorage.removeItem(key);
   }
 };
 
@@ -578,6 +645,9 @@ export const itineraryService = {
   async createItinerary(input: CreateItineraryInput): Promise<ItineraryHeader> {
     const userId = await getAuthedUserId();
     if (!userId) {
+      const store = await readGuestPlanner();
+      enforceGuestItineraryLimit(store);
+
       const now = new Date().toISOString();
       const id = `guest-itinerary-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const header: ItineraryHeader = {
@@ -593,7 +663,6 @@ export const itineraryService = {
         legacyAdventureId: null,
       };
 
-      const store = await readGuestPlanner();
       const bundle = createEmptyBundle(header);
       await writeGuestPlanner({
         ...store,
@@ -601,6 +670,11 @@ export const itineraryService = {
         bundles: [bundle, ...store.bundles.filter(existing => existing.header.id !== id)],
       });
       return header;
+    }
+
+    const selectable = await listSelectableItinerariesForUser(userId);
+    if (selectable.length >= MAX_ACTIVE_ITINERARIES) {
+      throw createItineraryLimitError(selectable.length);
     }
 
     const { data, error } = await supabase
@@ -1090,6 +1164,86 @@ export const itineraryService = {
     return refreshBundleAndSnapshot(userId, input.itineraryId);
   },
 
+  async getItineraryCreateCapacity(): Promise<{ count: number; max: number; canCreate: boolean }> {
+    const userId = await getAuthedUserId();
+    if (!userId) {
+      const store = await readGuestPlanner();
+      const count = countGuestSelectableItineraries(store);
+      return {
+        count,
+        max: MAX_ACTIVE_ITINERARIES,
+        canCreate: count < MAX_ACTIVE_ITINERARIES,
+      };
+    }
+
+    const itineraries = await listSelectableItinerariesForUser(userId);
+    const count = itineraries.length;
+    return {
+      count,
+      max: MAX_ACTIVE_ITINERARIES,
+      canCreate: count < MAX_ACTIVE_ITINERARIES,
+    };
+  },
+
+  async getPreferredAddTargetItineraryId(): Promise<string | null> {
+    const userId = await getAuthedUserId();
+    const key = preferredTargetStorageKeyForUser(userId);
+    const stored = await AsyncStorage.getItem(key);
+    if (!stored) return null;
+
+    try {
+      if (!userId) {
+        const store = await readGuestPlanner();
+        const exists = store.bundles.some(
+          bundle => bundle.header.id === stored && bundle.header.status !== 'archived'
+        );
+        if (!exists) {
+          await AsyncStorage.removeItem(key);
+          return null;
+        }
+        return stored;
+      }
+
+      const itineraries = await listSelectableItinerariesForUser(userId);
+      const exists = itineraries.some(itinerary => itinerary.id === stored);
+      if (!exists) {
+        await AsyncStorage.removeItem(key);
+        return null;
+      }
+      return stored;
+    } catch {
+      return stored;
+    }
+  },
+
+  async setPreferredAddTargetItineraryId(itineraryId: string | null): Promise<void> {
+    const userId = await getAuthedUserId();
+    const key = preferredTargetStorageKeyForUser(userId);
+    if (!itineraryId) {
+      await AsyncStorage.removeItem(key);
+      return;
+    }
+
+    if (!userId) {
+      const store = await readGuestPlanner();
+      const exists = store.bundles.some(
+        bundle => bundle.header.id === itineraryId && bundle.header.status !== 'archived'
+      );
+      if (!exists) {
+        throw new Error('Unable to set preferred itinerary target.');
+      }
+      await AsyncStorage.setItem(key, itineraryId);
+      return;
+    }
+
+    const itineraries = await listSelectableItinerariesForUser(userId);
+    const exists = itineraries.some(itinerary => itinerary.id === itineraryId);
+    if (!exists) {
+      throw new Error('Unable to set preferred itinerary target.');
+    }
+    await AsyncStorage.setItem(key, itineraryId);
+  },
+
   async deleteItinerary(itineraryId: string): Promise<void> {
     const userId = await getAuthedUserId();
     if (!userId) {
@@ -1100,6 +1254,7 @@ export const itineraryService = {
         bundles: store.bundles.filter(bundle => bundle.header.id !== itineraryId),
       };
       await writeGuestPlanner(nextStore);
+      await clearPreferredTargetIfMatches(null, itineraryId);
       return;
     }
 
@@ -1119,6 +1274,7 @@ export const itineraryService = {
       throw new Error(deleteItineraryError.message || 'Failed to delete itinerary.');
     }
 
+    await clearPreferredTargetIfMatches(userId, itineraryId);
     await AsyncStorage.removeItem(getSnapshotKey(userId));
   },
 
@@ -1126,7 +1282,7 @@ export const itineraryService = {
     const userId = await getAuthedUserId();
     if (!userId) {
       return withGuestBundleMutation(itineraryId, bundle => {
-        const nextDays = bundle.days.filter(day => day.dayIndex !== dayIndex);
+        const nextDays = compactDaysAfterRemoval(bundle.days, dayIndex);
         return {
           ...bundle,
           days: nextDays,
@@ -1141,6 +1297,31 @@ export const itineraryService = {
       .eq('day_index', dayIndex);
     if (deleteError) {
       throw new Error(deleteError.message || 'Failed to remove day items.');
+    }
+
+    const { data: remainingRows, error: remainingRowsError } = await supabase
+      .from('itinerary_items')
+      .select('id,day_index,position_index')
+      .eq('itinerary_id', itineraryId)
+      .order('day_index', { ascending: true })
+      .order('position_index', { ascending: true });
+    if (remainingRowsError) {
+      throw new Error(remainingRowsError.message || 'Failed to compact itinerary days.');
+    }
+
+    const sourceDayMap = new Map<number, string[]>();
+    (remainingRows || []).forEach(row => {
+      const current = sourceDayMap.get(row.day_index) || [];
+      current.push(row.id);
+      sourceDayMap.set(row.day_index, current);
+    });
+
+    const sourceDayIndexes = [...sourceDayMap.keys()].sort((a, b) => a - b);
+    for (const sourceDayIndex of sourceDayIndexes) {
+      const ids = sourceDayMap.get(sourceDayIndex) || [];
+      if (!ids.length) continue;
+      const targetDayIndex = sourceDayIndex > dayIndex ? sourceDayIndex - 1 : sourceDayIndex;
+      await applyDayOrder(itineraryId, targetDayIndex, ids);
     }
 
     await touchItinerary(itineraryId);

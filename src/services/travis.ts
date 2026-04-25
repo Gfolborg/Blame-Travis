@@ -74,7 +74,7 @@ export const travisService = {
       }
 
       return data.anchors;
-    } catch (_e) {
+    } catch {
       return [{ ...start, dayStart: 1, dayEnd: days, name: 'Starting Point' }];
     }
   },

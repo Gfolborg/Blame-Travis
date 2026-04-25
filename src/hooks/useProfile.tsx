@@ -13,7 +13,7 @@ interface ProfileContextType {
   session: Session | null;
   loading: boolean;
   error: string | null;
-  updateProfile: (updates: Partial<Profile>) => Promise<void>;
+  updateProfile: (_updates: Partial<Profile>) => Promise<void>;
   refreshProfile: () => Promise<void>;
   isOnboarded: boolean;
   signOut: () => Promise<void>;

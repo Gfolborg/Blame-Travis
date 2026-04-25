@@ -3,6 +3,7 @@ jest.mock('expo-localization', () => ({
 }));
 
 import {
+  compactDaysAfterRemoval,
   computeDayConflicts,
   computeHopWarnings,
   reorderWithIndices,
@@ -66,5 +67,20 @@ describe('itineraryService helpers', () => {
     const warnings = computeHopWarnings([day], 'mi');
     expect(warnings.length).toBeGreaterThanOrEqual(1);
     expect(warnings.some(warning => warning.severity === 'medium' || warning.severity === 'high')).toBe(true);
+  });
+
+  it('compacts day numbering after removing a middle day', () => {
+    const day1 = buildDay(1, [{ activityId: 'a1' }]);
+    const day2 = buildDay(2, [{ activityId: 'a2' }]);
+    const day3 = buildDay(3, [{ activityId: 'a3' }]);
+    const day4 = buildDay(4, [{ activityId: 'a4' }]);
+
+    const compacted = compactDaysAfterRemoval([day1, day2, day3, day4], 2);
+
+    expect(compacted.map(day => day.dayIndex)).toEqual([1, 2, 3]);
+    expect(compacted[1].items[0].activityId).toBe('a3');
+    expect(compacted[1].items[0].dayIndex).toBe(2);
+    expect(compacted[2].items[0].activityId).toBe('a4');
+    expect(compacted[2].items[0].dayIndex).toBe(3);
   });
 });

@@ -396,7 +396,7 @@ export const activitiesService = {
       }
 
       return data.explanation;
-    } catch (_err) {
+    } catch {
       return `Travis: 'I looked at the dossier and this is the one. No further questions.'`;
     }
   },

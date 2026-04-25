@@ -24,7 +24,7 @@ interface NoticeOptions {
 }
 
 interface NoticeContextType {
-  showNotice: (options: NoticeOptions) => void;
+  showNotice: (_options: NoticeOptions) => void;
   hideNotice: () => void;
 }
 

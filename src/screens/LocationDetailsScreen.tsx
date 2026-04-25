@@ -45,7 +45,8 @@ import { bookingService } from '../services/booking';
 import { TravisSignal } from '../components/TravisSignal';
 import { useNotice } from '../components/TravisNotice';
 import { exploreService } from '../services/explore';
-import { itineraryService } from '../services/itinerary';
+import { isItineraryLimitError, itineraryService } from '../services/itinerary';
+import { ItineraryListItem } from '../types/itinerary';
 
 const { width, height } = Dimensions.get('window');
 const HERO_HEIGHT = height * 0.55;
@@ -97,6 +98,8 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
   const [lightboxVisible, setLightboxVisible] = useState(false);
   const [activeIndex, setActiveIndex] = useState(1);
   const [itineraryDays, setItineraryDays] = useState<number[]>([1]);
+  const [addTargetItineraryId, setAddTargetItineraryId] = useState<string | null>(null);
+  const [itinerarySelectionPrompt, setItinerarySelectionPrompt] = useState<ItineraryListItem[] | null>(null);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
   const [addingToItinerary, setAddingToItinerary] = useState(false);
   const [duplicatePrompt, setDuplicatePrompt] = useState<{
@@ -167,6 +170,42 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
       setItineraryDays([1]);
     }
   }, []);
+
+  const showItineraryLimitWarning = useCallback(() => {
+    showNotice({
+      title: 'LIMIT REACHED',
+      message: "Travis: 'You can keep up to 5 itineraries at a time. Delete one to create another.'",
+      type: 'warning',
+    });
+    exploreService.trackEvent({
+      eventName: 'itinerary_limit_warning_shown',
+      metadata: {
+        source: 'details_add',
+        max_itineraries: 5,
+      },
+    });
+  }, [showNotice]);
+
+  const selectTargetItinerary = useCallback(
+    async (itineraryId: string, selectionMode: 'auto_created' | 'single' | 'remembered' | 'picker') => {
+      if (!details) return;
+      await itineraryService.setPreferredAddTargetItineraryId(itineraryId);
+      setAddTargetItineraryId(itineraryId);
+      await loadItineraryContext(itineraryId);
+      setItinerarySelectionPrompt(null);
+      setDayPickerOpen(true);
+      exploreService.trackEvent({
+        eventName: 'itinerary_target_selected',
+        activityId: details.id,
+        metadata: {
+          source: 'details',
+          itinerary_id: itineraryId,
+          selection_mode: selectionMode,
+        },
+      });
+    },
+    [details, loadItineraryContext],
+  );
 
   const fetchAll = useCallback(async () => {
     try {
@@ -298,20 +337,78 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
   );
 
   const handleAddToItinerary = useCallback(
-    async (dayIndex: number) => {
+    async () => {
       if (!details || addingToItinerary) return;
       try {
-        const ensured = await itineraryService.ensureActiveItinerary({
-          destinationCity: details.city || 'Open Road',
-        });
-        if (ensured.created) {
-          exploreService.trackEvent({
-            eventName: 'itinerary_created_auto',
-            metadata: { source: 'details_add' },
+        const builder = await itineraryService.loadBuilderData();
+        if (!builder.itineraries.length) {
+          const ensured = await itineraryService.ensureActiveItinerary({
+            destinationCity: details.city || 'Open Road',
           });
+          if (ensured.created) {
+            exploreService.trackEvent({
+              eventName: 'itinerary_created_auto',
+              metadata: { source: 'details_add' },
+            });
+          }
+          await selectTargetItinerary(ensured.itineraryId, 'auto_created');
+          return;
         }
 
-        const builder = await itineraryService.loadBuilderData(ensured.itineraryId);
+        if (builder.itineraries.length === 1) {
+          await selectTargetItinerary(builder.itineraries[0].id, 'single');
+          return;
+        }
+
+        const preferred = await itineraryService.getPreferredAddTargetItineraryId();
+        if (preferred && builder.itineraries.some(itinerary => itinerary.id === preferred)) {
+          await selectTargetItinerary(preferred, 'remembered');
+          return;
+        }
+
+        setItinerarySelectionPrompt(builder.itineraries);
+      } catch (error: any) {
+        if (isItineraryLimitError(error)) {
+          showItineraryLimitWarning();
+          return;
+        }
+        showNotice({
+          title: 'ADD FAILED',
+          message: error?.message || 'Could not prepare itinerary selection right now.',
+          type: 'error',
+        });
+      }
+    },
+    [addingToItinerary, details, selectTargetItinerary, showItineraryLimitWarning, showNotice],
+  );
+
+  const handleAddToItineraryDay = useCallback(
+    async (dayIndex: number) => {
+      if (!details || addingToItinerary) return;
+      if (!addTargetItineraryId) {
+        setDayPickerOpen(false);
+        setDuplicatePrompt(null);
+        showNotice({
+          title: 'TARGET REQUIRED',
+          message: "Travis: 'Pick an itinerary target first, then choose your day.'",
+          type: 'warning',
+        });
+        return;
+      }
+      try {
+        const builder = await itineraryService.loadBuilderData(addTargetItineraryId);
+        if (!builder.bundle) {
+          await itineraryService.setPreferredAddTargetItineraryId(null);
+          setAddTargetItineraryId(null);
+          setDuplicatePrompt(null);
+          setDayPickerOpen(false);
+          showNotice({
+            title: 'TARGET MISSING',
+            message: 'That itinerary is no longer available. Please choose another.',
+            type: 'warning',
+          });
+          return;
+        }
         const normalizedTargetKeys = getActivityIdentityKeys(details);
         const duplicateDay = builder.bundle?.days.find(day =>
           day.items.some(item => normalizedTargetKeys.has(normalizeIdentity(item.activityId))),
@@ -319,14 +416,14 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
 
         if (duplicateDay) {
           setDuplicatePrompt({
-            itineraryId: ensured.itineraryId,
+            itineraryId: addTargetItineraryId,
             dayIndex,
             duplicateDayIndex: duplicateDay,
           });
           return;
         }
 
-        await completeAddToDay(ensured.itineraryId, dayIndex, false);
+        await completeAddToDay(addTargetItineraryId, dayIndex, false);
       } catch (error: any) {
         setDuplicatePrompt(null);
         showNotice({
@@ -336,7 +433,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
         });
       }
     },
-    [addingToItinerary, completeAddToDay, details, showNotice],
+    [addTargetItineraryId, addingToItinerary, completeAddToDay, details, showNotice],
   );
 
   const handleBookNow = async () => {
@@ -395,7 +492,9 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
           <ChevronLeft size={24} color="#1A1A1A" strokeWidth={2} />
         </TouchableOpacity>
         <TouchableOpacity
-          onPress={() => setDayPickerOpen(true)}
+          onPress={() => {
+            void handleAddToItinerary();
+          }}
           style={styles.navCircle}
           accessibilityRole="button"
           accessibilityLabel="Add this stop to itinerary"
@@ -561,6 +660,44 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
       </Modal>
 
       <Modal
+        visible={Boolean(itinerarySelectionPrompt)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setItinerarySelectionPrompt(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setItinerarySelectionPrompt(null)} />
+          <View style={styles.dayPickerCard}>
+            <Text style={styles.dayPickerTitle}>CHOOSE ITINERARY</Text>
+            <Text style={styles.dayPickerSubtitle}>
+              Add "{details.title}" to:
+            </Text>
+            <View style={styles.dayPickerGrid}>
+              {itinerarySelectionPrompt?.map(itinerary => (
+                <TouchableOpacity
+                  key={itinerary.id}
+                  style={styles.dayPickerPill}
+                  onPress={() => {
+                    void selectTargetItinerary(itinerary.id, 'picker');
+                  }}
+                >
+                  <Text style={styles.dayPickerPillText} numberOfLines={1}>
+                    {(itinerary.destinationCity || itinerary.title).toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity
+              style={styles.dayPickerCancel}
+              onPress={() => setItinerarySelectionPrompt(null)}
+            >
+              <Text style={styles.dayPickerCancelText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={dayPickerOpen}
         transparent
         animationType="fade"
@@ -611,7 +748,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
                   style={styles.dayPickerPill}
                   disabled={addingToItinerary}
                   onPress={() => {
-                    void handleAddToItinerary(day);
+                    void handleAddToItineraryDay(day);
                   }}
                 >
                   <Text style={styles.dayPickerPillText}>
@@ -639,7 +776,9 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
         <BlurView intensity={90} tint="light" style={styles.bottomBar}>
           <TouchableOpacity 
             style={styles.primaryAction}
-            onPress={() => setDayPickerOpen(true)}
+            onPress={() => {
+              void handleAddToItinerary();
+            }}
             accessibilityRole="button"
             accessibilityLabel={`Add ${details.title} to itinerary`}
           >

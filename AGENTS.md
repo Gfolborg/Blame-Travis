@@ -56,6 +56,13 @@ Not allowed in MVP:
 - hidden critical gestures
 - dead-end flows requiring hard permission grants
 
+## 4.1 Itinerary Targeting Rules
+
+- If no itinerary exists, the app may auto-create one from the current city context.
+- If itineraries already exist, add-to-itinerary flows must require selecting an existing itinerary target before day assignment.
+- The app should remember the user's last chosen itinerary target for subsequent add actions.
+- Maximum active itinerary count is 5 non-archived itineraries; show soft warning only when creation of a 6th is attempted.
+
 ## 5. Voice and Copy Contract
 
 All user-facing copy must be:

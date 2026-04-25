@@ -39,3 +39,4 @@ description: Deterministic ranking and itinerary-assembly rules using grounded d
 ## Non-Negotiables
 - No hidden scoring heuristics without documentation.
 - No LLM-generated facts entering ranking logic.
+- Itinerary creation behavior must enforce active-cap limits consistently across all add/create entry points.

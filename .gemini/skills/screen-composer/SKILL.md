@@ -37,3 +37,4 @@ description: Screen-level implementation standards for hierarchy, state coverage
 ## Non-Negotiables
 - No screen ships with missing recovery states.
 - No critical CTA hidden behind non-obvious gestures.
+- Multi-itinerary add flows must resolve itinerary target before day assignment.

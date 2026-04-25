@@ -369,6 +369,11 @@ Create or verify SQL for booking funnel:
   - `ExploreScreen`: satchel save now works without requiring an active itinerary; day assignment options only show when an itinerary is active.
   - `itineraryService.removeDay`: removes a day only after moving that day's activities back into saved/satchel storage.
   - `JourneysScreen`: map mode now excludes stops with missing coordinates, labels non-mappable rows, and shows a safe empty-map fallback instead of risking coordinate crashes.
+- 2026-04-24: Implemented multi-itinerary targeting and creation cap guardrails:
+  - `ExploreScreen` and `LocationDetailsScreen`: add flow now resolves itinerary target first (auto-create only when none exist, picker for multi-itinerary, remembered preferred target thereafter).
+  - `ExploreScreen`: removed legacy city conflict create/delete prompt from city selection flow.
+  - `itineraryService.createItinerary`: enforces a soft app/service cap of 5 non-archived itineraries via typed `ITINERARY_LIMIT_REACHED` errors.
+  - `JourneysScreen`: create-itinerary flow now surfaces non-blocking soft warning when user attempts to create itinerary #6.
 
 ---
 

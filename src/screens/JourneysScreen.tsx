@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   View,
   Image,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,7 +25,7 @@ import { useNotice } from '../components/TravisNotice';
 import { TravisSignal } from '../components/TravisSignal';
 import { isFeatureEnabled } from '../config/featureFlags';
 import { bookingService } from '../services/booking';
-import { itineraryService } from '../services/itinerary';
+import { isItineraryLimitError, itineraryService } from '../services/itinerary';
 import { theme } from '../theme';
 import { BookingStateSummary } from '../types/booking';
 import {
@@ -125,6 +124,12 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
   const [createStartDate, setCreateStartDate] = useState('');
   const [createEndDate, setCreateEndDate] = useState('');
   const [creating, setCreating] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<{
+    type: 'delete_itinerary';
+  } | {
+    type: 'remove_day';
+    dayIndex: number;
+  } | null>(null);
 
   // Inline Draft State
   const [draftTitle, setDraftTitle] = useState('');
@@ -266,7 +271,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
         endDate: bundle.header.endDate,
       });
       setBundle(nextBundle);
-    } catch (error: any) {
+    } catch {
       showNotice({
         title: 'SAVE FAILED',
         message: 'Could not sync updates to the dossier.',
@@ -297,7 +302,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
         message: "Travis: 'Mission timeline synchronized.'",
         type: 'success',
       });
-    } catch (error: any) {
+    } catch {
       showNotice({
         title: 'UPDATE FAILED',
         message: 'Could not update trip dates.',
@@ -370,6 +375,14 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
       setCreateOpen(false);
       await loadBuilderState(created.id);
     } catch (error: any) {
+      if (isItineraryLimitError(error)) {
+        showNotice({
+          title: 'LIMIT REACHED',
+          message: "Travis: 'You can keep up to 5 itineraries at a time. Delete one to create another.'",
+          type: 'warning',
+        });
+        return;
+      }
       showNotice({
         title: 'CREATE FAILED',
         message: 'Could not create itinerary.',
@@ -391,7 +404,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
           itemId: item.id,
         });
         setBundle(nextBundle);
-      } catch (error: any) {
+      } catch {
         showNotice({
           title: 'REMOVE FAILED',
           message: 'Could not remove stop.',
@@ -418,7 +431,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
           toIndex,
         });
         setBundle(nextBundle);
-      } catch (error: any) {
+      } catch {
         showNotice({
           title: 'REORDER FAILED',
           message: 'Could not reorder stops.',
@@ -448,7 +461,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
           targetDayIndex: nextDayIndex,
         });
         setBundle(nextBundle);
-      } catch (error: any) {
+      } catch {
         showNotice({
           title: 'MOVE FAILED',
           message: 'Could not move item.',
@@ -471,64 +484,50 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     await loadBuilderState(activeItineraryId, true);
   }, [activeItineraryId, loadBuilderState]);
 
-  const handleDeleteItinerary = useCallback(async () => {
+  const handleDeleteItinerary = useCallback(() => {
     if (!activeItineraryId || writesDisabled) return;
+    setConfirmAction({ type: 'delete_itinerary' });
+  }, [activeItineraryId, writesDisabled]);
 
-    Alert.alert(
-      'BURN DOSSIER',
-      "Travis: 'Redaction is permanent. Are you sure you want to burn this mission data?'",
-      [
-        { text: 'ABORT', style: 'cancel' },
-        { 
-          text: 'BURN IT', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setMutating(true);
-              await itineraryService.deleteItinerary(activeItineraryId);
-              await loadBuilderState(null);
-            } catch (err: any) {
-              showNotice({ title: 'DELETE FAILED', message: 'Could not delete itinerary.', type: 'error' });
-            } finally {
-              setMutating(false);
-            }
-          }
-        }
-      ]
-    );
-  }, [activeItineraryId, loadBuilderState, showNotice, writesDisabled]);
-
-  const handleRemoveDay = useCallback(async () => {
+  const handleRemoveDay = useCallback(() => {
     if (!activeItineraryId || writesDisabled) return;
+    setConfirmAction({ type: 'remove_day', dayIndex: selectedDayIndex });
+  }, [activeItineraryId, selectedDayIndex, writesDisabled]);
 
-    Alert.alert(
-      'REDACT CHAPTER',
-      `Travis: 'Removing Chapter ${selectedDayIndex} will permanently remove its stops from this itinerary. Proceed?'`,
-      [
-        { text: 'STAY', style: 'cancel' },
-        {
-          text: 'REDACT',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setMutating(true);
-              const nextBundle = await itineraryService.removeDay(activeItineraryId, selectedDayIndex);
-              setBundle(nextBundle);
-              if (nextBundle.days.length > 0) {
-                setSelectedDayIndex(nextBundle.days[0].dayIndex);
-              } else {
-                setSelectedDayIndex(1);
-              }
-            } catch (err: any) {
-              showNotice({ title: 'REMOVE FAILED', message: 'Could not remove day.', type: 'error' });
-            } finally {
-              setMutating(false);
-            }
-          }
-        }
-      ]
-    );
-  }, [activeItineraryId, selectedDayIndex, showNotice, writesDisabled]);
+  const handleConfirmAction = useCallback(async () => {
+    if (!activeItineraryId || !confirmAction) return;
+    if (writesDisabled) return;
+
+    if (confirmAction.type === 'delete_itinerary') {
+      try {
+        setMutating(true);
+        await itineraryService.deleteItinerary(activeItineraryId);
+        setConfirmAction(null);
+        await loadBuilderState(null);
+      } catch {
+        showNotice({ title: 'DELETE FAILED', message: 'Could not delete itinerary.', type: 'error' });
+      } finally {
+        setMutating(false);
+      }
+      return;
+    }
+
+    try {
+      setMutating(true);
+      const nextBundle = await itineraryService.removeDay(activeItineraryId, confirmAction.dayIndex);
+      setBundle(nextBundle);
+      setConfirmAction(null);
+      if (nextBundle.days.length > 0) {
+        setSelectedDayIndex(nextBundle.days[0].dayIndex);
+      } else {
+        setSelectedDayIndex(1);
+      }
+    } catch {
+      showNotice({ title: 'REMOVE FAILED', message: 'Could not remove day.', type: 'error' });
+    } finally {
+      setMutating(false);
+    }
+  }, [activeItineraryId, confirmAction, loadBuilderState, showNotice, writesDisabled]);
 
   if (loading) {
     return (
@@ -927,6 +926,53 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={Boolean(confirmAction)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmAction(null)}
+      >
+        <View style={styles.modalBackdropCentered}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setConfirmAction(null)} disabled={writesDisabled} />
+          <View style={styles.confirmCard}>
+            <Text style={styles.modalTitle}>
+              {confirmAction?.type === 'delete_itinerary' ? 'BURN DOSSIER' : 'REDACT CHAPTER'}
+            </Text>
+            <Text style={styles.confirmMessage}>
+              {confirmAction?.type === 'delete_itinerary'
+                ? "Travis: 'Redaction is permanent. Are you sure you want to burn this mission data?'"
+                : `Travis: 'Removing Chapter ${confirmAction?.dayIndex} will permanently remove its stops from this itinerary. Proceed?'`}
+            </Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={styles.confirmCancel}
+                onPress={() => setConfirmAction(null)}
+                disabled={writesDisabled}
+              >
+                <Text style={styles.confirmCancelText}>
+                  {confirmAction?.type === 'delete_itinerary' ? 'ABORT' : 'STAY'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmDanger}
+                onPress={() => {
+                  void handleConfirmAction();
+                }}
+                disabled={writesDisabled}
+              >
+                <Text style={styles.confirmDangerText}>
+                  {writesDisabled
+                    ? 'WORKING...'
+                    : confirmAction?.type === 'delete_itinerary'
+                      ? 'BURN IT'
+                      : 'REDACT'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -1034,9 +1080,17 @@ const styles = StyleSheet.create({
   commandButtonActive: { backgroundColor: theme.colors.textPrimary },
   commandAdd: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.textPrimary, alignItems: 'center', justifyContent: 'center', ...theme.shadows.card },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  modalBackdropCentered: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', paddingHorizontal: 24 },
   modalCard: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, ...theme.shadows.float },
   modalCardLarge: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, minHeight: 520, ...theme.shadows.float },
+  confirmCard: { backgroundColor: theme.colors.surface, borderRadius: 22, padding: 20, ...theme.shadows.float },
   modalTitle: { fontFamily: theme.typography.fonts.black, color: theme.colors.textPrimary, fontSize: 24, marginBottom: 20, letterSpacing: -0.5 },
+  confirmMessage: { marginTop: -6, marginBottom: 20, color: theme.colors.textSecondary, fontFamily: theme.typography.fonts.narrative, fontSize: 14, lineHeight: 20 },
+  confirmActions: { flexDirection: 'row', gap: 10 },
+  confirmCancel: { flex: 1, height: 44, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceElevated },
+  confirmCancelText: { color: theme.colors.textPrimary, fontFamily: theme.typography.fonts.technicalBold, fontSize: 11, letterSpacing: 0.8 },
+  confirmDanger: { flex: 1, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary },
+  confirmDangerText: { color: '#FFF', fontFamily: theme.typography.fonts.black, fontSize: 11, letterSpacing: 0.8 },
   calendarHint: { marginTop: -8, marginBottom: 12, color: theme.colors.textSecondary, fontFamily: theme.typography.fonts.narrative, fontSize: 13 },
   modalButtonRow: { marginTop: 16, flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   input: {
