@@ -8,6 +8,50 @@ import {
 } from '../types/explore';
 
 const DB_RESULT_TARGET = 12;
+const DEFAULT_PAGE_SIZE = 24;
+const MAX_PAGE_SIZE = 50;
+const MAX_EVENT_BATCH_SIZE = 20;
+const EVENT_BATCH_FLUSH_MS = 800;
+const SESSION_CACHE_MS = 15000;
+const DB_ACTIVITY_SELECT = `
+  id,
+  canonical_key,
+  title,
+  summary,
+  categories,
+  tags,
+  source_priority,
+  rating_average,
+  rating_count,
+  duration_minutes_min,
+  duration_minutes_max,
+  pricing_tier,
+  family_friendly,
+  accessibility_tags,
+  booking_supported,
+  booking_deep_link,
+  image_url,
+  location_city,
+  location_region,
+  location_country_code,
+  location_lat,
+  location_lng
+`;
+
+type PendingActivityEvent = {
+  userId: string;
+  eventName: string;
+  activityId?: string | null;
+  searchSessionId?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+let cachedSessionUserId: string | null = null;
+let cachedSessionFetchedAt = 0;
+let pendingActivityEvents: PendingActivityEvent[] = [];
+let eventFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let eventFlushInFlight = false;
+const activityIdByCanonicalKeyCache = new Map<string, string | null>();
 
 const toLowerSet = (values: string[]) => new Set(values.map(value => value.toLowerCase()));
 
@@ -178,8 +222,31 @@ const buildSearchTerms = (value: string): string[] => {
   return [...new Set(candidates)];
 };
 
-const queryDbActivities = async (input: ExploreSearchInput): Promise<ExploreActivity[]> => {
-  let query = supabase.from('activities').select('*').eq('status', 'active').limit(120);
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+const normalizeCanonicalKey = (inputId: string) =>
+  inputId.startsWith('provider:') ? inputId.replace('provider:', '') : inputId;
+
+const queryDbActivities = async (input: ExploreSearchInput): Promise<{
+  activities: ExploreActivity[];
+  fetchedCount: number;
+  candidateLimit: number;
+  cursor: number;
+  pageSize: number;
+}> => {
+  const pageSize = clamp(input.pageSize ?? DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE);
+  const cursor = clamp(input.cursor ?? 0, 0, 5000);
+  const candidateLimit = clamp(pageSize * 3, 72, 180);
+
+  let query = supabase
+    .from('activities')
+    .select(DB_ACTIVITY_SELECT)
+    .eq('status', 'active')
+    .order('updated_at', { ascending: false })
+    .range(cursor, cursor + candidateLimit - 1);
 
   const searchTerm = input.query.trim() || input.destination?.trim() || '';
   if (searchTerm) {
@@ -208,11 +275,21 @@ const queryDbActivities = async (input: ExploreSearchInput): Promise<ExploreActi
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data || []).map(normalizeDbActivity);
+  return {
+    activities: ((data || []) as ActivityRow[]).map(normalizeDbActivity),
+    fetchedCount: data?.length || 0,
+    candidateLimit,
+    cursor,
+    pageSize,
+  };
 };
 
-const queryProviderActivities = async (input: ExploreSearchInput): Promise<ExploreActivity[]> => {
+const queryProviderActivities = async (
+  input: ExploreSearchInput,
+  maxResultCount: number,
+): Promise<ExploreActivity[]> => {
   if (!input.coords) return [];
+  const boundedResultCount = clamp(maxResultCount, 1, 20);
 
   const { data, error } = await supabase.functions.invoke('discover-places', {
     body: {
@@ -222,6 +299,7 @@ const queryProviderActivities = async (input: ExploreSearchInput): Promise<Explo
         radius: input.radiusMeters,
         searchQuery: input.query.trim() || input.destination || 'things to do',
         strictBounds: false,
+        maxResultCount: boundedResultCount,
       },
     },
   });
@@ -242,9 +320,19 @@ const dedupeActivities = (activities: ExploreActivity[]) => {
 };
 
 const getAuthedUserId = async (): Promise<string | null> => {
+  const now = Date.now();
+  if (now - cachedSessionFetchedAt <= SESSION_CACHE_MS) {
+    return cachedSessionUserId;
+  }
   const { data, error } = await supabase.auth.getSession();
-  if (error) return null;
-  return data.session?.user.id || null;
+  if (error) {
+    cachedSessionUserId = null;
+    cachedSessionFetchedAt = now;
+    return null;
+  }
+  cachedSessionUserId = data.session?.user.id || null;
+  cachedSessionFetchedAt = now;
+  return cachedSessionUserId;
 };
 
 const serializeFilters = (filters: ExploreFilters) => ({
@@ -257,21 +345,118 @@ const serializeFilters = (filters: ExploreFilters) => ({
   accessibility: filters.accessibility,
 });
 
+const resolveActivityIdsForCanonicalKeys = async (canonicalKeys: string[]) => {
+  const unresolvedKeys = canonicalKeys.filter(
+    key => key && !activityIdByCanonicalKeyCache.has(key),
+  );
+  if (!unresolvedKeys.length) return;
+
+  const { data, error } = await supabase
+    .from('activities')
+    .select('id,canonical_key')
+    .in('canonical_key', unresolvedKeys);
+
+  if (error) {
+    console.warn('activity id resolution failed:', error.message);
+    return;
+  }
+
+  const resolved = new Map<string, string>();
+  (data || []).forEach((row: any) => {
+    if (row?.canonical_key && row?.id) {
+      resolved.set(row.canonical_key, row.id);
+    }
+  });
+
+  unresolvedKeys.forEach(key => {
+    activityIdByCanonicalKeyCache.set(key, resolved.get(key) || null);
+  });
+};
+
+const flushQueuedActivityEvents = async () => {
+  if (eventFlushInFlight) return;
+  if (!pendingActivityEvents.length) return;
+  eventFlushInFlight = true;
+
+  const batch = pendingActivityEvents.splice(0, MAX_EVENT_BATCH_SIZE);
+
+  try {
+    const canonicalKeys = batch
+      .map(event => event.activityId)
+      .filter((id): id is string => Boolean(id && !isUuid(id)))
+      .map(normalizeCanonicalKey);
+    await resolveActivityIdsForCanonicalKeys([...new Set(canonicalKeys)]);
+
+    const rows = batch.map(event => {
+      const inputId = event.activityId;
+      const canonicalKey = inputId && !isUuid(inputId) ? normalizeCanonicalKey(inputId) : null;
+      const dbActivityId = inputId
+        ? isUuid(inputId)
+          ? inputId
+          : activityIdByCanonicalKeyCache.get(canonicalKey as string) || null
+        : null;
+      const metadata = { ...(event.metadata || {}) };
+      if (inputId && !dbActivityId) {
+        metadata.raw_activity_id = inputId;
+      }
+
+      return {
+        user_id: event.userId,
+        activity_id: dbActivityId,
+        search_session_id: event.searchSessionId || null,
+        event_name: event.eventName,
+        metadata: metadata as any,
+      };
+    });
+
+    const { error } = await supabase.from('activity_events').insert(rows);
+    if (error) {
+      console.warn(`activity event batch write failed (${rows.length} rows):`, error.message);
+    }
+  } finally {
+    eventFlushInFlight = false;
+    if (pendingActivityEvents.length) {
+      if (eventFlushTimer) clearTimeout(eventFlushTimer);
+      eventFlushTimer = setTimeout(() => {
+        eventFlushTimer = null;
+        void flushQueuedActivityEvents();
+      }, EVENT_BATCH_FLUSH_MS);
+    }
+  }
+};
+
+const scheduleActivityEventFlush = () => {
+  if (eventFlushTimer) return;
+  eventFlushTimer = setTimeout(() => {
+    eventFlushTimer = null;
+    void flushQueuedActivityEvents();
+  }, EVENT_BATCH_FLUSH_MS);
+};
+
 export const exploreService = {
   async search(input: ExploreSearchInput): Promise<ExploreSearchResult> {
-    const dbResults = await queryDbActivities(input);
-    const filteredDbResults = applyFilters(dbResults, input.filters);
+    const dbQuery = await queryDbActivities(input);
+    const filteredDbResults = applyFilters(dbQuery.activities, input.filters);
 
     let providerResults: ExploreActivity[] = [];
     let usedProviderFallback = false;
-    if (filteredDbResults.length < DB_RESULT_TARGET) {
-      providerResults = applyFilters(await queryProviderActivities(input), input.filters);
+    if (filteredDbResults.length < Math.max(DB_RESULT_TARGET, dbQuery.pageSize)) {
+      providerResults = applyFilters(
+        await queryProviderActivities(input, dbQuery.pageSize),
+        input.filters,
+      );
       usedProviderFallback = providerResults.length > 0;
     }
 
+    const combined = dedupeActivities([...filteredDbResults, ...providerResults]);
+    const page = combined.slice(0, dbQuery.pageSize);
+    const hasMore = dbQuery.fetchedCount >= dbQuery.candidateLimit || combined.length > dbQuery.pageSize;
+
     return {
-      activities: dedupeActivities([...filteredDbResults, ...providerResults]),
+      activities: page,
       usedProviderFallback,
+      hasMore,
+      nextCursor: hasMore ? dbQuery.cursor + dbQuery.candidateLimit : null,
     };
   },
 
@@ -306,45 +491,23 @@ export const exploreService = {
     const userId = await getAuthedUserId();
     if (!userId) return;
 
-    let dbActivityId: string | null = null;
-    const inputId = params.activityId;
-    const isUuid = inputId ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(inputId) : false;
-
-    if (inputId && isUuid) {
-      dbActivityId = inputId;
-    } else if (inputId) {
-      // Not a UUID, try to resolve from canonical_key
-      const canonicalKey = inputId.startsWith('provider:') 
-          ? inputId.replace('provider:', '') 
-          : inputId;
-          
-      const { data } = await supabase
-          .from('activities')
-          .select('id')
-          .eq('canonical_key', canonicalKey)
-          .single();
-      
-      if (data) {
-        dbActivityId = data.id;
-      }
-    }
-
-    const eventMetadata = { ...(params.metadata || {}) };
-    if (inputId && !dbActivityId) {
-      // If we couldn't resolve a UUID, store the raw ID in metadata for audit
-      eventMetadata.raw_activity_id = inputId;
-    }
-
-    const { error } = await supabase.from('activity_events').insert({
-      user_id: userId,
-      activity_id: dbActivityId,
-      search_session_id: params.searchSessionId || null,
-      event_name: params.eventName,
-      metadata: eventMetadata as any,
+    pendingActivityEvents.push({
+      userId,
+      eventName: params.eventName,
+      activityId: params.activityId || null,
+      searchSessionId: params.searchSessionId || null,
+      metadata: params.metadata || {},
     });
 
-    if (error) {
-      console.warn(`activity event write failed (${params.eventName}):`, error.message);
+    if (pendingActivityEvents.length >= MAX_EVENT_BATCH_SIZE) {
+      if (eventFlushTimer) {
+        clearTimeout(eventFlushTimer);
+        eventFlushTimer = null;
+      }
+      void flushQueuedActivityEvents();
+      return;
     }
+
+    scheduleActivityEventFlush();
   },
 };

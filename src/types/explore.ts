@@ -51,11 +51,15 @@ export interface ExploreSearchInput {
   coords: { lat: number; lng: number } | null;
   radiusMeters: number;
   filters: ExploreFilters;
+  pageSize?: number;
+  cursor?: number;
 }
 
 export interface ExploreSearchResult {
   activities: ExploreActivity[];
   usedProviderFallback: boolean;
+  nextCursor?: number | null;
+  hasMore?: boolean;
 }
 
 export type ActivityRow = Tables<'activities'>;

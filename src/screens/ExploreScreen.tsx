@@ -48,7 +48,7 @@ import { isItineraryLimitError, itineraryService } from '../services/itinerary';
 import { ItineraryDay, ItineraryHeader, ItineraryListItem } from '../types/itinerary';
 import { Calendar } from 'react-native-calendars';
 
-const { height } = Dimensions.get('window');
+const { height, width } = Dimensions.get('window');
 
 const CATEGORIES = [
   { id: 'near_me', label: 'Nearby', image: 'https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&q=80&w=400' },
@@ -170,23 +170,32 @@ const ExploreScreen = () => {
     destinationCity: string;
   } | null>(null);
   const [itinerarySelectionPrompt, setItinerarySelectionPrompt] = useState<ItineraryListItem[] | null>(null);
+  const [addActionMenuActivity, setAddActionMenuActivity] = useState<ExploreActivity | null>(null);
+  const [addActionStep, setAddActionStep] = useState<'pick_itinerary' | 'pick_day'>('pick_day');
   const [addTargetItineraryId, setAddTargetItineraryId] = useState<string | null>(null);
   const [addTargetItineraryLabel, setAddTargetItineraryLabel] = useState<string | null>(null);
-  const [itineraryCityMismatchNotice, setItineraryCityMismatchNotice] = useState<{
-    searchedCity: string;
-    itineraryCity: string;
-  } | null>(null);
   // Curation State
-  const [dayPickerTarget, setDayPickerTarget] = useState<ExploreActivity | null>(null);
   const [itineraryDays, setItineraryDays] = useState<number[]>([]);
   const [activeItineraryId, setActiveItineraryId] = useState<string | null>(null);
-  const [dismissedActivityIds, setDismissedActivityIds] = useState<Set<string>>(new Set());
   const [addingToItinerary, setAddingToItinerary] = useState(false);
   const [duplicatePrompt, setDuplicatePrompt] = useState<{
     itineraryId: string;
     dayIndex: number;
     duplicateDayIndex: number;
   } | null>(null);
+  const latestSearchContextRef = useRef<{ destination: string | null; query: string }>({
+    destination: null,
+    query: '',
+  });
+
+  const closeInlineAddPanel = useCallback(() => {
+    setDuplicatePrompt(null);
+    setItinerarySelectionPrompt(null);
+    setAddActionMenuActivity(null);
+    setAddActionStep('pick_day');
+    setAddTargetItineraryId(null);
+    setAddTargetItineraryLabel(null);
+  }, []);
 
   const loadItineraryContext = useCallback(async (selectedId?: string | null) => {
     try {
@@ -206,6 +215,10 @@ const ExploreScreen = () => {
   useEffect(() => {
     loadItineraryContext();
   }, [loadItineraryContext]);
+
+  useEffect(() => {
+    latestSearchContextRef.current = { destination, query };
+  }, [destination, query]);
 
   useEffect(() => {
     const term = query.trim();
@@ -270,8 +283,12 @@ const ExploreScreen = () => {
     setCalendarStartDate('');
     setCalendarEndDate('');
     setCalendarTarget(null);
+    setAddActionMenuActivity(null);
+    setAddActionStep('pick_day');
+    setAddTargetItineraryId(null);
+    setAddTargetItineraryLabel(null);
+    setDuplicatePrompt(null);
     setItinerarySelectionPrompt(null);
-    setItineraryCityMismatchNotice(null);
     setFilterOpen(false);
     setFilters(DEFAULT_FILTERS);
     setListLayout('list');
@@ -282,17 +299,30 @@ const ExploreScreen = () => {
       loadItineraryContext();
 
       const onBackPress = () => {
-        if (duplicatePrompt || dayPickerTarget) {
+        if (duplicatePrompt) {
           setDuplicatePrompt(null);
-          setDayPickerTarget(null);
           return true;
         }
         if (calendarOpen) {
           setCalendarOpen(false);
           return true;
         }
+        if (addActionMenuActivity && addActionStep === 'pick_itinerary') {
+          if (addTargetItineraryId) {
+            setItinerarySelectionPrompt(null);
+            setAddActionStep('pick_day');
+          } else {
+            closeInlineAddPanel();
+          }
+          return true;
+        }
         if (itinerarySelectionPrompt) {
           setItinerarySelectionPrompt(null);
+          setAddActionStep('pick_day');
+          return true;
+        }
+        if (addActionMenuActivity) {
+          closeInlineAddPanel();
           return true;
         }
         if (filterOpen) {
@@ -317,15 +347,8 @@ const ExploreScreen = () => {
 
       const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
       return () => sub.remove();
-    }, [loadItineraryContext, duplicatePrompt, dayPickerTarget, calendarOpen, itinerarySelectionPrompt, filterOpen, citySuggestions.length, showVibeSearchHint, hasSearched, resetToExploreLanding])
+    }, [loadItineraryContext, duplicatePrompt, calendarOpen, itinerarySelectionPrompt, addActionMenuActivity, addActionStep, addTargetItineraryId, closeInlineAddPanel, filterOpen, citySuggestions.length, showVibeSearchHint, hasSearched, resetToExploreLanding])
   );
-
-  useEffect(() => {
-    if (!dayPickerTarget) {
-      setDuplicatePrompt(null);
-      setItinerarySelectionPrompt(null);
-    }
-  }, [dayPickerTarget]);
 
   useEffect(() => {
     if (query.trim().length > 0) {
@@ -338,6 +361,34 @@ const ExploreScreen = () => {
     const nextDay = Math.max(...days) + 1;
     return [...days, nextDay];
   }, [itineraryDays]);
+  const maxAssignableDay = useMemo(
+    () => (assignableDays.length ? Math.max(...assignableDays) : 1),
+    [assignableDays],
+  );
+  const activeInlineActivityIdentity = useMemo(
+    () => (addActionMenuActivity ? getActivityIdentity(addActionMenuActivity) : null),
+    [addActionMenuActivity],
+  );
+  const flatListPerfKey = useMemo(() => {
+    const duplicateKey = duplicatePrompt
+      ? `${duplicatePrompt.itineraryId}:${duplicatePrompt.dayIndex}:${duplicatePrompt.duplicateDayIndex}`
+      : 'none';
+    return [
+      activeInlineActivityIdentity || 'none',
+      addActionStep,
+      addTargetItineraryId || 'none',
+      duplicateKey,
+      addingToItinerary ? 'busy' : 'idle',
+      listLayout,
+    ].join('|');
+  }, [
+    activeInlineActivityIdentity,
+    addActionStep,
+    addTargetItineraryId,
+    duplicatePrompt,
+    addingToItinerary,
+    listLayout,
+  ]);
 
   const vibeOptions = useMemo(() => CATEGORIES.filter(category => category.id !== 'near_me'), []);
   const hasLocationContext = useMemo(
@@ -455,18 +506,18 @@ const ExploreScreen = () => {
     async (
       itineraryId: string,
       selectionMode: 'auto_created' | 'single' | 'remembered' | 'picker',
-      selectedActivity?: ExploreActivity | null,
       targetLabel?: string | null,
     ) => {
       await itineraryService.setPreferredAddTargetItineraryId(itineraryId);
       setAddTargetItineraryId(itineraryId);
       setAddTargetItineraryLabel(targetLabel || null);
       setItinerarySelectionPrompt(null);
+      setAddActionStep('pick_day');
       await loadItineraryContext(itineraryId);
-      if (selectedActivity) {
+      if (addActionMenuActivity) {
         exploreService.trackEvent({
           eventName: 'itinerary_target_selected',
-          activityId: selectedActivity.id,
+          activityId: addActionMenuActivity.id,
           metadata: {
             source: 'explore',
             itinerary_id: itineraryId,
@@ -475,16 +526,26 @@ const ExploreScreen = () => {
         });
       }
     },
-    [loadItineraryContext],
+    [addActionMenuActivity, loadItineraryContext],
   );
 
   const resolveAddTargetForActivity = useCallback(
-    async (activity: ExploreActivity, openPickerOnMultiple = true): Promise<string | null> => {
+    async (
+      activity: ExploreActivity,
+      options: { forcePicker?: boolean; useLastItinerary?: boolean } = {},
+    ): Promise<string | null> => {
       try {
+        const { forcePicker = false, useLastItinerary = true } = options;
+        const fallbackDestination =
+          latestSearchContextRef.current.destination ||
+          latestSearchContextRef.current.query ||
+          activity.city ||
+          'Open Road';
         const builder = await itineraryService.loadBuilderData();
-        if (!builder.itineraries.length) {
+        const selectableItineraries = builder.itineraries.filter(itinerary => itinerary.status !== 'archived');
+        if (!selectableItineraries.length) {
           const ensured = await itineraryService.ensureActiveItinerary({
-            destinationCity: destination || query || activity.city || 'Open Road',
+            destinationCity: fallbackDestination,
           });
           if (ensured.created) {
             exploreService.trackEvent({
@@ -492,28 +553,29 @@ const ExploreScreen = () => {
               metadata: { source: 'explore_add' },
             });
           }
-          await selectTargetItinerary(ensured.itineraryId, 'auto_created', activity, destination || query || activity.city || 'Open Road');
+          await selectTargetItinerary(ensured.itineraryId, 'auto_created', fallbackDestination);
           return ensured.itineraryId;
         }
 
-        if (builder.itineraries.length === 1) {
-          const single = builder.itineraries[0];
-          await selectTargetItinerary(single.id, 'single', activity, single.destinationCity || single.title);
+        if (selectableItineraries.length === 1) {
+          const single = selectableItineraries[0];
+          await selectTargetItinerary(single.id, 'single', single.destinationCity || single.title);
           return single.id;
         }
 
-        const preferred = await itineraryService.getPreferredAddTargetItineraryId();
-        if (preferred) {
-          const match = builder.itineraries.find(itinerary => itinerary.id === preferred);
-          if (match) {
-            await selectTargetItinerary(match.id, 'remembered', activity, match.destinationCity || match.title);
-            return match.id;
+        if (!forcePicker && useLastItinerary) {
+          const preferred = await itineraryService.getPreferredAddTargetItineraryId();
+          if (preferred) {
+            const match = selectableItineraries.find(itinerary => itinerary.id === preferred);
+            if (match) {
+              await selectTargetItinerary(match.id, 'remembered', match.destinationCity || match.title);
+              return match.id;
+            }
           }
         }
 
-        if (openPickerOnMultiple) {
-          setItinerarySelectionPrompt(builder.itineraries);
-        }
+        setItinerarySelectionPrompt(selectableItineraries);
+        setAddActionStep('pick_itinerary');
         return null;
       } catch (error: any) {
         if (isItineraryLimitError(error)) {
@@ -528,17 +590,78 @@ const ExploreScreen = () => {
         return null;
       }
     },
-    [destination, query, selectTargetItinerary, showItineraryLimitWarning, showNotice],
+    [selectTargetItinerary, showItineraryLimitWarning, showNotice],
   );
 
   const beginAddToItinerary = useCallback(
     async (activity: ExploreActivity) => {
-      setDayPickerTarget(activity);
+      const incomingKey = getActivityIdentity(activity);
+      const activeKey = addActionMenuActivity ? getActivityIdentity(addActionMenuActivity) : null;
+      if (activeKey === incomingKey) {
+        closeInlineAddPanel();
+        return;
+      }
+      setAddActionMenuActivity(activity);
+      setAddActionStep('pick_day');
+      setAddTargetItineraryId(null);
+      setAddTargetItineraryLabel(null);
       setDuplicatePrompt(null);
-      await resolveAddTargetForActivity(activity, true);
+      setItinerarySelectionPrompt(null);
+      await resolveAddTargetForActivity(activity, { useLastItinerary: true });
     },
-    [resolveAddTargetForActivity],
+    [addActionMenuActivity, closeInlineAddPanel, resolveAddTargetForActivity],
   );
+
+  const handleToggleItineraryPicker = useCallback(async () => {
+    if (!addActionMenuActivity) return;
+    if (addActionStep === 'pick_itinerary' && addTargetItineraryId) {
+      setItinerarySelectionPrompt(null);
+      setAddActionStep('pick_day');
+      return;
+    }
+
+    setDuplicatePrompt(null);
+    await resolveAddTargetForActivity(addActionMenuActivity, { forcePicker: true, useLastItinerary: false });
+  }, [addActionMenuActivity, addActionStep, addTargetItineraryId, resolveAddTargetForActivity]);
+
+  const handleCreateItineraryFromInlineAdd = useCallback(async () => {
+    if (!addActionMenuActivity) return;
+    setDuplicatePrompt(null);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const fallbackDestination =
+        latestSearchContextRef.current.destination ||
+        latestSearchContextRef.current.query ||
+        addActionMenuActivity.city ||
+        'Open Road';
+      const created = await itineraryService.createItinerary({
+        title: `Trip ${today}`,
+        destinationCity: fallbackDestination,
+        startDate: null,
+        endDate: null,
+      });
+      exploreService.trackEvent({
+        eventName: 'itinerary_created_auto',
+        metadata: {
+          source: 'explore_add',
+          trigger: 'inline_add_create',
+        },
+      });
+      await selectTargetItinerary(created.id, 'auto_created', created.destinationCity || created.title);
+      const builder = await itineraryService.loadBuilderData(created.id);
+      setItinerarySelectionPrompt(builder.itineraries);
+    } catch (error: any) {
+      if (isItineraryLimitError(error)) {
+        showItineraryLimitWarning();
+        return;
+      }
+      showNotice({
+        title: 'ADD FAILED',
+        message: error?.message || 'Could not create a new itinerary right now.',
+        type: 'error',
+      });
+    }
+  }, [addActionMenuActivity, selectTargetItinerary, showItineraryLimitWarning, showNotice]);
 
   const completeAddToDay = useCallback(
     async (activity: ExploreActivity, dayIndex: number, itineraryId: string, duplicateOverride: boolean) => {
@@ -551,7 +674,6 @@ const ExploreScreen = () => {
         });
         const days = nextBundle.days.map(day => day.dayIndex);
         setItineraryDays(days.length ? days : [1]);
-        setDismissedActivityIds(current => new Set(current).add(getActivityIdentity(activity)));
 
         AccessibilityInfo.announceForAccessibility(`Added ${activity.title} to day ${dayIndex}`);
         exploreService.trackEvent({
@@ -574,7 +696,10 @@ const ExploreScreen = () => {
         setAddingToItinerary(false);
         setDuplicatePrompt(null);
         setItinerarySelectionPrompt(null);
-        setDayPickerTarget(null);
+        setAddActionMenuActivity(null);
+        setAddActionStep('pick_day');
+        setAddTargetItineraryId(null);
+        setAddTargetItineraryLabel(null);
       }
     },
     [showNotice],
@@ -582,15 +707,15 @@ const ExploreScreen = () => {
 
   const handleAddToDayPress = useCallback(
     async (dayIndex: number) => {
-      if (!dayPickerTarget || addingToItinerary) return;
+      if (!addActionMenuActivity || addingToItinerary) return;
       let targetItineraryId = addTargetItineraryId;
       if (!targetItineraryId) {
-        targetItineraryId = await resolveAddTargetForActivity(dayPickerTarget, true);
+        targetItineraryId = await resolveAddTargetForActivity(addActionMenuActivity, { useLastItinerary: true });
       }
       if (!targetItineraryId) {
         showNotice({
-          title: 'TARGET REQUIRED',
-          message: "Travis: 'Pick an itinerary target first, then choose your day.'",
+          title: 'CHOOSE ITINERARY',
+          message: "Travis: 'Pick an itinerary first, then choose your day.'",
           type: 'warning',
         });
         return;
@@ -603,15 +728,16 @@ const ExploreScreen = () => {
           setAddTargetItineraryLabel(null);
           setDuplicatePrompt(null);
           setItinerarySelectionPrompt(null);
+          setAddActionStep('pick_itinerary');
           showNotice({
-            title: 'TARGET MISSING',
-            message: 'That itinerary is no longer available. Please choose another.',
+            title: 'ITINERARY UNAVAILABLE',
+            message: 'That itinerary is no longer available. Pick another itinerary.',
             type: 'warning',
           });
           return;
         }
 
-        const normalizedTargetKeys = getActivityIdentityKeys(dayPickerTarget);
+        const normalizedTargetKeys = getActivityIdentityKeys(addActionMenuActivity);
         const duplicateDay = builder.bundle?.days.find(day =>
           day.items.some(item => normalizedTargetKeys.has(normalizeIdentity(item.activityId))),
         )?.dayIndex;
@@ -624,7 +750,7 @@ const ExploreScreen = () => {
           });
           exploreService.trackEvent({
             eventName: 'itinerary_duplicate_warning_shown',
-            activityId: dayPickerTarget.id,
+            activityId: addActionMenuActivity.id,
             metadata: {
               itinerary_id: targetItineraryId,
               selected_day_index: dayIndex,
@@ -635,10 +761,13 @@ const ExploreScreen = () => {
           return;
         }
 
-        await completeAddToDay(dayPickerTarget, dayIndex, targetItineraryId, false);
+        await completeAddToDay(addActionMenuActivity, dayIndex, targetItineraryId, false);
       } catch (error: any) {
         setDuplicatePrompt(null);
-        setDayPickerTarget(null);
+        setAddActionMenuActivity(null);
+        setAddActionStep('pick_day');
+        setAddTargetItineraryId(null);
+        setAddTargetItineraryLabel(null);
         showNotice({
           title: 'ADD FAILED',
           message: error?.message || 'Could not prepare this add right now.',
@@ -646,7 +775,7 @@ const ExploreScreen = () => {
         });
       }
     },
-    [addTargetItineraryId, addingToItinerary, completeAddToDay, dayPickerTarget, resolveAddTargetForActivity, showNotice],
+    [addActionMenuActivity, addTargetItineraryId, addingToItinerary, completeAddToDay, resolveAddTargetForActivity, showNotice],
   );
 
   const runSearch = useCallback(
@@ -713,7 +842,6 @@ const ExploreScreen = () => {
     }
     setPendingVibeId(null);
     setShowVibeSearchHint(false);
-    setItineraryCityMismatchNotice(null);
     await runSearch({
       nearMeOverride: true,
       coordsOverride: nextCoords,
@@ -745,22 +873,10 @@ const ExploreScreen = () => {
 
         const builder = await itineraryService.loadBuilderData();
         const existingBundle = builder.bundle;
-        const selectedCityKey = trimmedCity.trim().toLowerCase();
-        const existingCity = (existingBundle?.header.destinationCity || '').trim();
-        const existingCityKey = existingCity.toLowerCase();
 
         if (!existingBundle || !builder.activeItineraryId) {
-          setItineraryCityMismatchNotice(null);
           await createAndActivateItineraryForCity(trimmedCity);
         } else {
-          if (selectedCityKey && existingCityKey && selectedCityKey !== existingCityKey) {
-            setItineraryCityMismatchNotice({
-              searchedCity: trimmedCity,
-              itineraryCity: existingCity,
-            });
-          } else {
-            setItineraryCityMismatchNotice(null);
-          }
           await loadItineraryContext(builder.activeItineraryId);
         }
 
@@ -854,11 +970,12 @@ const ExploreScreen = () => {
 
   const clearAllFilters = () => setFilters(DEFAULT_FILTERS);
 
-  const renderActivityCard = ({ item }: { item: ExploreActivity; index: number }) => {
+  const renderActivityCard = useCallback(({ item }: { item: ExploreActivity; index: number }) => {
     const identity = getActivityIdentity(item);
-    const isDismissed = dismissedActivityIds.has(identity);
     const isGrid = listLayout === 'grid';
-    if (isDismissed) return null;
+    const isInlineAddOpen = activeInlineActivityIdentity === identity;
+    const itineraryChips = itinerarySelectionPrompt || [];
+    const inlinePanelOverlayStyle = isGrid ? styles.inlineAddPanelOverlayGrid : styles.inlineAddPanelOverlayList;
 
     return (
       <View style={[styles.storyCardContainer, isGrid && styles.storyCardGridContainer]}>
@@ -925,9 +1042,161 @@ const ExploreScreen = () => {
             </View>
           </View>
         </TouchableOpacity>
+
+        {isInlineAddOpen && (
+          <>
+            <TouchableOpacity
+              style={styles.inlineBackdrop}
+              activeOpacity={1}
+              onPress={closeInlineAddPanel}
+              accessibilityRole="button"
+              accessibilityLabel="Close add panel"
+            />
+            <View style={[styles.inlineAddPanel, inlinePanelOverlayStyle, isGrid && styles.inlineAddPanelGrid]}>
+              <View style={styles.inlineAddHeader}>
+                <TouchableOpacity
+                  style={styles.inlineItinerarySummary}
+                  onPress={() => {
+                    void handleToggleItineraryPicker();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Change itinerary"
+                >
+                  <Text style={styles.inlineItineraryCaption}>ITINERARY</Text>
+                  <Text style={styles.inlineItineraryValue} numberOfLines={1}>
+                    {addTargetItineraryLabel ? `Itinerary: ${addTargetItineraryLabel}` : 'Itinerary: Choose one'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.inlineCreateItineraryButton}
+                  onPress={() => {
+                    void handleCreateItineraryFromInlineAdd();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Create new itinerary"
+                >
+                  <Plus size={16} color="#4A4A4A" strokeWidth={2.2} />
+                </TouchableOpacity>
+              </View>
+
+              {addActionStep === 'pick_itinerary' && (
+                <View style={styles.inlineChipRow}>
+                  {itineraryChips.length > 0 ? (
+                    itineraryChips.map(itinerary => (
+                      <TouchableOpacity
+                        key={itinerary.id}
+                        style={[styles.inlineChip, addTargetItineraryId === itinerary.id && styles.inlineChipSelected]}
+                        onPress={() => {
+                          void selectTargetItinerary(
+                            itinerary.id,
+                            'picker',
+                            itinerary.destinationCity || itinerary.title,
+                          );
+                        }}
+                        disabled={addingToItinerary}
+                      >
+                        <Text
+                          style={[
+                            styles.inlineChipText,
+                            addTargetItineraryId === itinerary.id && styles.inlineChipTextSelected,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {(itinerary.destinationCity || itinerary.title).toUpperCase()}
+                        </Text>
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    <Text style={styles.inlineHelperText}>No itineraries yet. Tap the gray + to create one.</Text>
+                  )}
+                </View>
+              )}
+
+              {duplicatePrompt && (
+                <View style={styles.duplicateInlineCard}>
+                  <Text style={styles.duplicateInlineText}>
+                    {duplicatePrompt.duplicateDayIndex === duplicatePrompt.dayIndex
+                      ? `Already in Day ${duplicatePrompt.dayIndex}. Add another copy?`
+                      : `Already in Day ${duplicatePrompt.duplicateDayIndex}. Add to Day ${duplicatePrompt.dayIndex} too?`}
+                  </Text>
+                  <View style={styles.duplicateInlineActions}>
+                    <TouchableOpacity
+                      style={styles.duplicateInlineCancel}
+                      onPress={() => setDuplicatePrompt(null)}
+                      disabled={addingToItinerary}
+                    >
+                      <Text style={styles.duplicateInlineCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.duplicateInlineConfirm}
+                      onPress={() => {
+                        if (!duplicatePrompt) return;
+                        void completeAddToDay(
+                          item,
+                          duplicatePrompt.dayIndex,
+                          duplicatePrompt.itineraryId,
+                          true,
+                        );
+                      }}
+                      disabled={addingToItinerary}
+                    >
+                      <Text style={styles.duplicateInlineConfirmText}>Add Anyway</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {addActionStep === 'pick_day' && (
+                <View style={styles.inlineChipRow}>
+                  {assignableDays.map(day => (
+                    <TouchableOpacity
+                      key={day}
+                      style={[styles.inlineChip, !addTargetItineraryId && styles.inlineChipDisabled]}
+                      onPress={() => {
+                        void handleAddToDayPress(day);
+                      }}
+                      disabled={addingToItinerary || !addTargetItineraryId}
+                    >
+                      <Text style={styles.inlineChipText}>
+                        {day === maxAssignableDay ? `NEW DAY ${day}` : `DAY ${day}`}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={styles.inlineCloseButton}
+                onPress={closeInlineAddPanel}
+                disabled={addingToItinerary}
+              >
+                <Text style={styles.inlineCloseButtonText}>{addingToItinerary ? 'Adding...' : 'Close'}</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </View>
     );
-  };
+  }, [
+    listLayout,
+    activeInlineActivityIdentity,
+    itinerarySelectionPrompt,
+    beginAddToItinerary,
+    navigation,
+    addTargetItineraryLabel,
+    handleToggleItineraryPicker,
+    handleCreateItineraryFromInlineAdd,
+    addActionStep,
+    addTargetItineraryId,
+    addingToItinerary,
+    selectTargetItinerary,
+    duplicatePrompt,
+    completeAddToDay,
+    assignableDays,
+    maxAssignableDay,
+    handleAddToDayPress,
+    closeInlineAddPanel,
+  ]);
 
   const activeVibeLabel = useMemo(
     () => vibeOptions.find(vibe => vibe.id === pendingVibeId)?.label ?? null,
@@ -998,6 +1267,7 @@ const ExploreScreen = () => {
       )}
     </View>
   );
+  const extractActivityKey = useCallback((item: ExploreActivity) => item.id, []);
 
   return (
     <View style={styles.container}>
@@ -1006,10 +1276,16 @@ const ExploreScreen = () => {
       <FlatList
         key={listLayout}
         data={activities}
-        keyExtractor={item => item.id}
+        keyExtractor={extractActivityKey}
         renderItem={renderActivityCard}
+        extraData={flatListPerfKey}
         numColumns={listLayout === 'grid' ? 2 : 1}
         columnWrapperStyle={listLayout === 'grid' ? styles.gridRow : undefined}
+        initialNumToRender={listLayout === 'grid' ? 8 : 5}
+        maxToRenderPerBatch={listLayout === 'grid' ? 10 : 6}
+        updateCellsBatchingPeriod={50}
+        windowSize={listLayout === 'grid' ? 9 : 7}
+        removeClippedSubviews
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
@@ -1035,13 +1311,6 @@ const ExploreScreen = () => {
                   </TouchableOpacity>
                 </View>
               </View>
-              {itineraryCityMismatchNotice && (
-                <View style={styles.itineraryMismatchNotice}>
-                  <Text style={styles.itineraryMismatchText}>
-                    Add flow still targets {itineraryCityMismatchNotice.itineraryCity}. Pick an itinerary target when saving {itineraryCityMismatchNotice.searchedCity} activities.
-                  </Text>
-                </View>
-              )}
 
               {loading && (
                 <View>
@@ -1146,141 +1415,6 @@ const ExploreScreen = () => {
           ) : null
         }
       />
-
-      {/* Day Picker Tray */}
-      {dayPickerTarget && (
-        <>
-          <View style={styles.trayBackdrop}>
-            <TouchableOpacity
-              style={{ flex: 1 }}
-              onPress={() => {
-                setDuplicatePrompt(null);
-                setDayPickerTarget(null);
-              }}
-            />
-          </View>
-          <View style={styles.curateTray}>
-            <Text style={styles.trayTitle}>ADD TO ITINERARY</Text>
-            <Text style={styles.traySubtitle}>
-              {addTargetItineraryLabel
-                ? `Target: ${addTargetItineraryLabel}. Choose a day for "${dayPickerTarget.title}".`
-                : `Choose an itinerary target first, then assign "${dayPickerTarget.title}" to a day.`}
-            </Text>
-
-            <TouchableOpacity
-              style={styles.trayTargetButton}
-              onPress={() => {
-                void resolveAddTargetForActivity(dayPickerTarget, true);
-              }}
-              disabled={addingToItinerary}
-            >
-              <Text style={styles.trayTargetButtonText}>
-                {addTargetItineraryLabel ? `CHANGE TARGET (${addTargetItineraryLabel.toUpperCase()})` : 'CHOOSE ITINERARY TARGET'}
-              </Text>
-            </TouchableOpacity>
-
-            {duplicatePrompt && (
-              <View style={styles.duplicateInlineCard}>
-                <Text style={styles.duplicateInlineText}>
-                  {duplicatePrompt.duplicateDayIndex === duplicatePrompt.dayIndex
-                    ? `Already in Day ${duplicatePrompt.dayIndex}. Add another copy?`
-                    : `Already in Day ${duplicatePrompt.duplicateDayIndex}. Add to Day ${duplicatePrompt.dayIndex} too?`}
-                </Text>
-                <View style={styles.duplicateInlineActions}>
-                  <TouchableOpacity
-                    style={styles.duplicateInlineCancel}
-                    onPress={() => setDuplicatePrompt(null)}
-                    disabled={addingToItinerary}
-                  >
-                    <Text style={styles.duplicateInlineCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.duplicateInlineConfirm}
-                    onPress={() => {
-                      if (!dayPickerTarget || !duplicatePrompt) return;
-                      void completeAddToDay(
-                        dayPickerTarget,
-                        duplicatePrompt.dayIndex,
-                        duplicatePrompt.itineraryId,
-                        true,
-                      );
-                    }}
-                    disabled={addingToItinerary}
-                  >
-                    <Text style={styles.duplicateInlineConfirmText}>Add Anyway</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-            
-            <View style={styles.trayOptions}>
-              {assignableDays.map(day => (
-                <TouchableOpacity 
-                  key={day} 
-                  style={[styles.trayOption, !addTargetItineraryId && styles.trayOptionDisabled]}
-                  onPress={() => {
-                    void handleAddToDayPress(day);
-                  }}
-                  disabled={addingToItinerary || !addTargetItineraryId}
-                >
-                  <Text style={styles.trayOptionText}>{day === Math.max(...assignableDays) ? `NEW DAY ${day}` : `DAY ${day}`}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <TouchableOpacity
-              style={styles.trayCancel}
-              onPress={() => {
-                setDuplicatePrompt(null);
-                setDayPickerTarget(null);
-              }}
-              disabled={addingToItinerary}
-            >
-              <Text style={styles.trayCancelText}>{addingToItinerary ? 'ADDING...' : 'CANCEL'}</Text>
-            </TouchableOpacity>
-          </View>
-        </>
-      )}
-
-      <Modal
-        visible={Boolean(itinerarySelectionPrompt)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setItinerarySelectionPrompt(null)}
-      >
-        <View style={styles.calendarBackdrop}>
-          <View style={styles.calendarCard}>
-            <Text style={styles.calendarTitle}>Choose Itinerary</Text>
-            <Text style={styles.calendarHint}>Select a target itinerary before choosing your day.</Text>
-            <View style={styles.trayOptions}>
-              {itinerarySelectionPrompt?.map(itinerary => (
-                <TouchableOpacity
-                  key={itinerary.id}
-                  style={styles.trayOption}
-                  onPress={() => {
-                    void selectTargetItinerary(
-                      itinerary.id,
-                      'picker',
-                      dayPickerTarget,
-                      itinerary.destinationCity || itinerary.title,
-                    );
-                  }}
-                >
-                  <Text style={styles.trayOptionText}>
-                    {(itinerary.destinationCity || itinerary.title).toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <TouchableOpacity
-              style={styles.calendarSecondary}
-              onPress={() => setItinerarySelectionPrompt(null)}
-            >
-              <Text style={styles.calendarSecondaryText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
 
       {/* Full-Screen Filter Overlay */}
       <Modal
@@ -1537,21 +1671,6 @@ const styles = StyleSheet.create({
   resultsActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   actionIconButton: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F2F2F5', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16 },
   actionText: { fontFamily: 'Inter_600SemiBold', fontSize: 11, color: theme.colors.textPrimary },
-  itineraryMismatchNotice: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(201, 122, 0, 0.35)',
-    backgroundColor: 'rgba(201, 122, 0, 0.08)',
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    marginBottom: 10,
-  },
-  itineraryMismatchText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 12,
-    lineHeight: 17,
-    color: '#5C4200',
-  },
   gridRow: { justifyContent: 'space-between', paddingHorizontal: 32 },
   
   nearMeShortcut: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, marginTop: 16 },
@@ -1580,7 +1699,7 @@ const styles = StyleSheet.create({
   applyButton: { backgroundColor: '#1A1A1A', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 28 },
   applyButtonText: { fontFamily: 'Inter_700Bold', fontSize: 15, color: '#FFF' },
   
-  storyCardContainer: { paddingHorizontal: 32, marginTop: 24 },
+  storyCardContainer: { paddingHorizontal: 32, marginTop: 24, position: 'relative' },
   storyCardGridContainer: { paddingHorizontal: 0, width: (Dimensions.get('window').width - 64 - 16) / 2, marginTop: 16 },
   storyCard: { width: '100%', height: 480, borderRadius: 24, overflow: 'hidden', backgroundColor: '#F0F0F0' },
   storyCardGrid: { height: 260, borderRadius: 16 },
@@ -1601,55 +1720,111 @@ const styles = StyleSheet.create({
   storyMetaText: { fontFamily: 'Inter_600SemiBold', fontSize: 14, color: '#FFF' },
   storyMetaTextGrid: { fontSize: 11 },
   storyDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(255, 255, 255, 0.5)' },
-  
-  trayBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    zIndex: 2000,
-  },
-  curateTray: {
+
+  inlineAddPanel: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     backgroundColor: '#FFF',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    padding: 32,
-    paddingBottom: 50,
-    zIndex: 2001,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    padding: 12,
+    zIndex: 30,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 20,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    elevation: 14,
   },
-  trayTitle: {
-    fontFamily: 'Inter_900Black',
-    fontSize: 24,
-    color: '#1A1A1A',
-    marginBottom: 8,
+  inlineBackdrop: {
+    position: 'absolute',
+    zIndex: 20,
+    top: -height,
+    bottom: -height,
+    left: -width,
+    right: -width,
+    backgroundColor: 'rgba(9, 12, 18, 0.34)',
   },
-  traySubtitle: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 18,
+  inlineAddPanelOverlayList: {
+    left: 42,
+    right: 42,
+    bottom: 56,
   },
-  trayTargetButton: {
+  inlineAddPanelOverlayGrid: {
+    left: 8,
+    right: 8,
+    bottom: 24,
+  },
+  inlineAddPanelGrid: {
+    borderRadius: 12,
+    padding: 10,
+  },
+  inlineAddHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  inlineItinerarySummary: {
+    flex: 1,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.12)',
-    backgroundColor: '#F8F8FA',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 14,
+    borderColor: 'rgba(0,0,0,0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#FAFAFB',
   },
-  trayTargetButtonText: {
+  inlineItineraryCaption: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 10,
+    color: '#787878',
+    letterSpacing: 1.1,
+  },
+  inlineItineraryValue: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: '#1A1A1A',
+    marginTop: 2,
+  },
+  inlineCreateItineraryButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E3E4E8',
+  },
+  inlineChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  inlineChip: {
+    backgroundColor: '#F2F2F5',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  inlineChipSelected: {
+    backgroundColor: '#1A1A1A',
+  },
+  inlineChipDisabled: {
+    opacity: 0.45,
+  },
+  inlineChipText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 11,
     color: '#1A1A1A',
-    letterSpacing: 0.4,
+  },
+  inlineChipTextSelected: {
+    color: '#FFF',
+  },
+  inlineHelperText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12,
+    color: '#5A5A5A',
   },
   duplicateInlineCard: {
     borderRadius: 14,
@@ -1698,37 +1873,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#FFF',
   },
-  trayOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 32,
+  inlineCloseButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 2,
   },
-  trayOption: {
-    backgroundColor: '#F2F2F5',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 16,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  trayOptionDisabled: {
-    opacity: 0.45,
-  },
-  trayOptionText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 12,
-    color: '#1A1A1A',
-  },
-  trayCancel: {
-    alignSelf: 'center',
-    paddingVertical: 12,
-  },
-  trayCancelText: {
+  inlineCloseButtonText: {
     fontFamily: 'Inter_600SemiBold',
-    fontSize: 14,
-    color: '#999',
-    letterSpacing: 1,
+    fontSize: 12,
+    color: '#666',
   },
   
   searchSuggestions: { marginTop: 20 },

@@ -568,7 +568,8 @@ export const itineraryService = {
     const userId = await getAuthedUserId();
     if (!userId) {
       const guestStore = await readGuestPlanner();
-      const itineraries = guestStore.bundles
+      const selectableBundles = guestStore.bundles.filter(bundle => bundle.header.status !== 'archived');
+      const itineraries = selectableBundles
         .map(bundle => toListItem(bundle.header))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
@@ -589,7 +590,7 @@ export const itineraryService = {
             ? guestStore.activeItineraryId
             : itineraries[0].id;
 
-      const bundle = guestStore.bundles.find(item => item.header.id === activeId) || null;
+      const bundle = selectableBundles.find(item => item.header.id === activeId) || null;
 
       return {
         itineraries,

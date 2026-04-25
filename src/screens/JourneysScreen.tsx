@@ -98,6 +98,114 @@ try {
 
 type Props = MainTabScreenProps<'Journeys'>;
 
+type StoryItemCardProps = {
+  item: ItineraryActivityItem;
+  index: number;
+  isActive: boolean;
+  drag: () => void;
+  writesDisabled: boolean;
+  bookingTrackingEnabled: boolean;
+  bookingState?: BookingStateSummary;
+  onMoveBack: (_item: ItineraryActivityItem) => void;
+  onMoveForward: (_item: ItineraryActivityItem) => void;
+  onRemove: (_item: ItineraryActivityItem) => void;
+};
+
+const StoryItemCard = React.memo(
+  ({
+    item,
+    index,
+    isActive,
+    drag,
+    writesDisabled,
+    bookingTrackingEnabled,
+    bookingState,
+    onMoveBack,
+    onMoveForward,
+    onRemove,
+  }: StoryItemCardProps) => {
+    const rotation = index % 2 === 0 ? '-1.5deg' : '1.5deg';
+    const alignmentStyle = index % 2 === 0 ? { paddingRight: 40 } : { paddingLeft: 40 };
+    const bookingToneStyle =
+      bookingState?.statusTone === 'success'
+        ? styles.bookingChipSuccess
+        : bookingState?.statusTone === 'warning'
+          ? styles.bookingChipWarning
+          : bookingState?.statusTone === 'error'
+            ? styles.bookingChipError
+            : undefined;
+
+    return (
+      <View
+        style={[
+          styles.scrapbookItem,
+          alignmentStyle,
+          { transform: [{ rotate: isActive ? '0deg' : rotation }, { scale: isActive ? 1.05 : 1 }] },
+        ]}
+      >
+        <TouchableOpacity
+          onLongPress={drag}
+          activeOpacity={0.9}
+          disabled={writesDisabled}
+          style={[styles.storyCard, isActive && styles.storyCardActive]}
+        >
+          <View style={styles.storyCardImageBox}>
+            <Image
+              source={{ uri: item.imageUrl || 'https://images.unsplash.com/photo-1499750310107-5fef28a66643?auto=format&fit=crop&q=80&w=800' }}
+              style={styles.storyCardImage}
+            />
+          </View>
+          <View style={styles.storyCardBody}>
+            <View style={styles.storyCardHeader}>
+              <Text style={styles.storyCardTitle} numberOfLines={1}>{item.title}</Text>
+              {bookingTrackingEnabled && (
+                <View style={[styles.bookingChip, bookingToneStyle]}>
+                  <Text style={styles.bookingChipText}>{(bookingState?.statusLabel || 'Not Started').toUpperCase()}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.storyCardInsight}>"{item.narrativeWhy || `Travis: 'A strategic addition.'`}"</Text>
+            <View style={styles.storyCardFooter}>
+              <Text style={styles.storyCardMeta}>{(item.category || 'SPOT').toUpperCase()} | {item.city?.toUpperCase() || 'UNKNOWN'}</Text>
+              <View style={styles.stopActions}>
+                <TouchableOpacity
+                  onPress={() => onMoveBack(item)}
+                  style={styles.storyActionButton}
+                  disabled={writesDisabled || item.dayIndex <= 1}
+                >
+                  <Ionicons name="chevron-back" size={14} color={theme.colors.textPrimary} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => onMoveForward(item)}
+                  style={styles.storyActionButton}
+                  disabled={writesDisabled}
+                >
+                  <Ionicons name="chevron-forward" size={14} color={theme.colors.textPrimary} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => onRemove(item)}
+                  style={styles.storyActionButton}
+                  disabled={writesDisabled}
+                >
+                  <Trash2 size={14} color={theme.colors.primary} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  },
+  (prev, next) =>
+    prev.item === next.item &&
+    prev.index === next.index &&
+    prev.isActive === next.isActive &&
+    prev.writesDisabled === next.writesDisabled &&
+    prev.bookingTrackingEnabled === next.bookingTrackingEnabled &&
+    prev.bookingState?.statusLabel === next.bookingState?.statusLabel &&
+    prev.bookingState?.statusTone === next.bookingState?.statusTone,
+);
+
 const JourneysScreen: React.FC<Props> = ({ navigation }) => {
   const itineraryBuilderEnabled = isFeatureEnabled('itinerary_builder_v1_enabled');
   const bookingTrackingEnabled = isFeatureEnabled('booking_tracking_v1_enabled');
@@ -178,6 +286,13 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     if (!itineraryBuilderEnabled) return;
     loadBuilderState();
   }, [itineraryBuilderEnabled, loadBuilderState]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!itineraryBuilderEnabled) return;
+      void loadBuilderState();
+    }, [itineraryBuilderEnabled, loadBuilderState]),
+  );
 
   const dayIndexes = useMemo(() => {
     const indexedDays = new Set<number>();
@@ -472,6 +587,20 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
       }
     },
     [activeItineraryId, dayIndexes, showNotice, writesDisabled]
+  );
+
+  const handleMoveBack = useCallback(
+    (item: ItineraryActivityItem) => {
+      void handleMoveItemToAdjacentDay(item, -1);
+    },
+    [handleMoveItemToAdjacentDay],
+  );
+
+  const handleMoveForward = useCallback(
+    (item: ItineraryActivityItem) => {
+      void handleMoveItemToAdjacentDay(item, 1);
+    },
+    [handleMoveItemToAdjacentDay],
   );
 
   const handleAddDayShell = useCallback(() => {
@@ -782,63 +911,52 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     </View>
   );
 
+  const renderStoryItem = useCallback(
+    ({ item, drag, isActive, getIndex }: RenderItemParams<ItineraryActivityItem>) => {
+      const index = getIndex();
+      if (index == null) return null;
+      return (
+        <StoryItemCard
+          item={item}
+          index={index}
+          isActive={isActive}
+          drag={drag}
+          writesDisabled={writesDisabled}
+          bookingTrackingEnabled={bookingTrackingEnabled}
+          bookingState={bookingStateByItemId[item.id]}
+          onMoveBack={handleMoveBack}
+          onMoveForward={handleMoveForward}
+          onRemove={handleRemoveItem}
+        />
+      );
+    },
+    [
+      writesDisabled,
+      bookingTrackingEnabled,
+      bookingStateByItemId,
+      handleMoveBack,
+      handleMoveForward,
+      handleRemoveItem,
+    ],
+  );
+
+  const itineraryItemKeyExtractor = useCallback((item: ItineraryActivityItem) => item.id, []);
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <DraggableFlatList
         data={viewMode === 'story' ? selectedDayItems : []}
-        keyExtractor={item => item.id}
+        keyExtractor={itineraryItemKeyExtractor}
         activationDistance={12}
         ListHeaderComponent={dossierHeader}
         contentContainerStyle={viewMode === 'story' ? styles.scrapbookList : styles.mapModeContainer}
+        initialNumToRender={6}
+        maxToRenderPerBatch={8}
+        updateCellsBatchingPeriod={50}
+        windowSize={8}
+        removeClippedSubviews
         onDragEnd={({ from, to }) => { if (from !== to) void handleReorder(from, to); }}
-        renderItem={({ item, drag, isActive, getIndex }: RenderItemParams<ItineraryActivityItem>) => {
-          const index = getIndex();
-          if (index == null) return null;
-          const rotation = index % 2 === 0 ? '-1.5deg' : '1.5deg';
-          const alignmentStyle = index % 2 === 0 ? { paddingRight: 40 } : { paddingLeft: 40 };
-          const bookingToneStyle = bookingStateByItemId[item.id]?.statusTone === 'success' ? styles.bookingChipSuccess : bookingStateByItemId[item.id]?.statusTone === 'warning' ? styles.bookingChipWarning : bookingStateByItemId[item.id]?.statusTone === 'error' ? styles.bookingChipError : undefined;
-          
-          return (
-            <View
-              style={[
-                styles.scrapbookItem,
-                alignmentStyle,
-                { transform: [{ rotate: isActive ? '0deg' : rotation }, { scale: isActive ? 1.05 : 1 }] },
-              ]}
-            >
-              <TouchableOpacity onLongPress={drag} activeOpacity={0.9} disabled={writesDisabled} style={[styles.storyCard, isActive && styles.storyCardActive]}>
-                <View style={styles.storyCardImageBox}>
-                  <Image source={{ uri: item.imageUrl || 'https://images.unsplash.com/photo-1499750310107-5fef28a66643?auto=format&fit=crop&q=80&w=800' }} style={styles.storyCardImage} />
-                </View>
-                <View style={styles.storyCardBody}>
-                  <View style={styles.storyCardHeader}>
-                    <Text style={styles.storyCardTitle} numberOfLines={1}>{item.title}</Text>
-                    {bookingTrackingEnabled && (
-                      <View style={[styles.bookingChip, bookingToneStyle]}>
-                        <Text style={styles.bookingChipText}>{(bookingStateByItemId[item.id]?.statusLabel || 'Not Started').toUpperCase()}</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.storyCardInsight}>"{item.narrativeWhy || `Travis: 'A strategic addition.'`}"</Text>
-                  <View style={styles.storyCardFooter}>
-                    <Text style={styles.storyCardMeta}>{(item.category || 'SPOT').toUpperCase()} â€¢ {item.city?.toUpperCase() || 'UNKNOWN'}</Text>
-                    <View style={styles.stopActions}>
-                      <TouchableOpacity onPress={() => handleMoveItemToAdjacentDay(item, -1)} style={styles.storyActionButton} disabled={writesDisabled || item.dayIndex <= 1}>
-                        <Ionicons name="chevron-back" size={14} color={theme.colors.textPrimary} />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => handleMoveItemToAdjacentDay(item, 1)} style={styles.storyActionButton} disabled={writesDisabled}>
-                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textPrimary} />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => handleRemoveItem(item)} style={styles.storyActionButton} disabled={writesDisabled}>
-                        <Trash2 size={14} color={theme.colors.primary} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            </View>
-          );
-        }}
+        renderItem={renderStoryItem}
         ListFooterComponent={viewMode === 'map' ? (
           <View style={styles.mapItemsWrapper}>
             {selectedDayItems.map((item, index) => {
