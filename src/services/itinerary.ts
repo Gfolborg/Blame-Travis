@@ -4,6 +4,7 @@ import { getLocales } from 'expo-localization';
 import { supabase } from './supabase';
 import { activitiesService } from './activities';
 import { Tables } from '../types/database';
+import { getDayIndexesFromDateRange } from '../utils/itineraryDays';
 import {
   AddActivityToDayInput,
   AddSavedToDayInput,
@@ -52,6 +53,7 @@ const DAY_CAPACITY_THRESHOLD = 6;
 const MEDIUM_DISTANCE_THRESHOLD = 15;
 const HIGH_DISTANCE_THRESHOLD = 30;
 const MAX_ACTIVE_ITINERARIES = 5;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const ITINERARY_LIMIT_ERROR_CODE = 'ITINERARY_LIMIT_REACHED' as const;
 export type ItineraryLimitError = Error & {
@@ -301,6 +303,63 @@ export const compactDaysAfterRemoval = (days: ItineraryDay[], removedDayIndex: n
     })
     .filter((day): day is ItineraryDay => Boolean(day))
     .sort((a, b) => a.dayIndex - b.dayIndex);
+
+const clearDayItemsWithoutCompaction = (days: ItineraryDay[], removedDayIndex: number): ItineraryDay[] =>
+  days
+    .map(day => {
+      if (day.dayIndex !== removedDayIndex) {
+        return {
+          ...day,
+          items: day.items.map(item => ({ ...item })),
+        };
+      }
+      return {
+        dayIndex: day.dayIndex,
+        items: [],
+      };
+    })
+    .filter(day => day.items.length > 0)
+    .sort((a, b) => a.dayIndex - b.dayIndex);
+
+const parseIsoDate = (value?: string | null): Date | null => {
+  if (!value) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
+const toIsoDate = (value: Date): string => value.toISOString().slice(0, 10);
+
+export const getDateRangeAfterDayRemoval = (
+  startDate?: string | null,
+  endDate?: string | null,
+): { startDate: string | null; endDate: string | null; shouldCompactDays: boolean } => {
+  const dayIndexes = getDayIndexesFromDateRange(startDate, endDate);
+  if (dayIndexes.length <= 1) {
+    return {
+      startDate: startDate || null,
+      endDate: endDate || null,
+      shouldCompactDays: false,
+    };
+  }
+
+  const parsedEndDate = parseIsoDate(endDate);
+  if (!parsedEndDate) {
+    return {
+      startDate: startDate || null,
+      endDate: endDate || null,
+      shouldCompactDays: true,
+    };
+  }
+
+  const nextEndDate = new Date(parsedEndDate.getTime() - DAY_MS);
+  return {
+    startDate: startDate || null,
+    endDate: toIsoDate(nextEndDate),
+    shouldCompactDays: true,
+  };
+};
 
 const computeWarnings = (days: ItineraryDay[]): ItineraryWarnings => {
   const distanceUnit = inferDistanceUnit();
@@ -1283,13 +1342,39 @@ export const itineraryService = {
     const userId = await getAuthedUserId();
     if (!userId) {
       return withGuestBundleMutation(itineraryId, bundle => {
-        const nextDays = compactDaysAfterRemoval(bundle.days, dayIndex);
+        const dateRangeAfterRemoval = getDateRangeAfterDayRemoval(
+          bundle.header.startDate,
+          bundle.header.endDate,
+        );
+        const nextDays = dateRangeAfterRemoval.shouldCompactDays
+          ? compactDaysAfterRemoval(bundle.days, dayIndex)
+          : clearDayItemsWithoutCompaction(bundle.days, dayIndex);
         return {
           ...bundle,
+          header: {
+            ...bundle.header,
+            startDate: dateRangeAfterRemoval.startDate,
+            endDate: dateRangeAfterRemoval.endDate,
+            updatedAt: new Date().toISOString(),
+          },
           days: nextDays,
         };
       });
     }
+
+    const { data: itineraryRow, error: itineraryError } = await supabase
+      .from('itineraries')
+      .select('start_date,end_date')
+      .eq('id', itineraryId)
+      .single();
+    if (itineraryError || !itineraryRow) {
+      throw new Error(itineraryError?.message || 'Failed to load itinerary dates.');
+    }
+
+    const dateRangeAfterRemoval = getDateRangeAfterDayRemoval(
+      itineraryRow.start_date,
+      itineraryRow.end_date,
+    );
 
     const { error: deleteError } = await supabase
       .from('itinerary_items')
@@ -1300,29 +1385,44 @@ export const itineraryService = {
       throw new Error(deleteError.message || 'Failed to remove day items.');
     }
 
-    const { data: remainingRows, error: remainingRowsError } = await supabase
-      .from('itinerary_items')
-      .select('id,day_index,position_index')
-      .eq('itinerary_id', itineraryId)
-      .order('day_index', { ascending: true })
-      .order('position_index', { ascending: true });
-    if (remainingRowsError) {
-      throw new Error(remainingRowsError.message || 'Failed to compact itinerary days.');
+    if (dateRangeAfterRemoval.shouldCompactDays) {
+      const { data: remainingRows, error: remainingRowsError } = await supabase
+        .from('itinerary_items')
+        .select('id,day_index,position_index')
+        .eq('itinerary_id', itineraryId)
+        .order('day_index', { ascending: true })
+        .order('position_index', { ascending: true });
+      if (remainingRowsError) {
+        throw new Error(remainingRowsError.message || 'Failed to compact itinerary days.');
+      }
+
+      const sourceDayMap = new Map<number, string[]>();
+      (remainingRows || []).forEach(row => {
+        const current = sourceDayMap.get(row.day_index) || [];
+        current.push(row.id);
+        sourceDayMap.set(row.day_index, current);
+      });
+
+      const sourceDayIndexes = [...sourceDayMap.keys()].sort((a, b) => a - b);
+      for (const sourceDayIndex of sourceDayIndexes) {
+        const ids = sourceDayMap.get(sourceDayIndex) || [];
+        if (!ids.length) continue;
+        const targetDayIndex = sourceDayIndex > dayIndex ? sourceDayIndex - 1 : sourceDayIndex;
+        await applyDayOrder(itineraryId, targetDayIndex, ids);
+      }
     }
 
-    const sourceDayMap = new Map<number, string[]>();
-    (remainingRows || []).forEach(row => {
-      const current = sourceDayMap.get(row.day_index) || [];
-      current.push(row.id);
-      sourceDayMap.set(row.day_index, current);
-    });
-
-    const sourceDayIndexes = [...sourceDayMap.keys()].sort((a, b) => a - b);
-    for (const sourceDayIndex of sourceDayIndexes) {
-      const ids = sourceDayMap.get(sourceDayIndex) || [];
-      if (!ids.length) continue;
-      const targetDayIndex = sourceDayIndex > dayIndex ? sourceDayIndex - 1 : sourceDayIndex;
-      await applyDayOrder(itineraryId, targetDayIndex, ids);
+    if (dateRangeAfterRemoval.shouldCompactDays || itineraryRow.end_date !== dateRangeAfterRemoval.endDate) {
+      const { error: updateDateError } = await supabase
+        .from('itineraries')
+        .update({
+          start_date: dateRangeAfterRemoval.startDate,
+          end_date: dateRangeAfterRemoval.endDate,
+        })
+        .eq('id', itineraryId);
+      if (updateDateError) {
+        throw new Error(updateDateError.message || 'Failed to update itinerary date range.');
+      }
     }
 
     await touchItinerary(itineraryId);

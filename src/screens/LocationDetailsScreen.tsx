@@ -4,7 +4,6 @@ import {
   AppState,
   Dimensions,
   Image,
-  InteractionManager,
   Linking,
   StyleSheet,
   Text,
@@ -16,6 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { 
   ChevronLeft, 
   Plus, 
@@ -47,6 +47,7 @@ import { useNotice } from '../components/TravisNotice';
 import { exploreService } from '../services/explore';
 import { isItineraryLimitError, itineraryService } from '../services/itinerary';
 import { ItineraryListItem } from '../types/itinerary';
+import { getDayIndexesFromDateRange } from '../utils/itineraryDays';
 
 const { width, height } = Dimensions.get('window');
 const HERO_HEIGHT = height * 0.55;
@@ -99,13 +100,16 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
   const [activeIndex, setActiveIndex] = useState(1);
   const [itineraryDays, setItineraryDays] = useState<number[]>([1]);
   const [addTargetItineraryId, setAddTargetItineraryId] = useState<string | null>(null);
+  const [addTargetItineraryLabel, setAddTargetItineraryLabel] = useState<string | null>(null);
   const [itinerarySelectionPrompt, setItinerarySelectionPrompt] = useState<ItineraryListItem[] | null>(null);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
   const [addingToItinerary, setAddingToItinerary] = useState(false);
+  const [addedFeedback, setAddedFeedback] = useState<{ itineraryId: string; itineraryLabel: string } | null>(null);
   const [duplicatePrompt, setDuplicatePrompt] = useState<{
     itineraryId: string;
     dayIndex: number;
     duplicateDayIndex: number;
+    itineraryLabel: string;
   } | null>(null);
 
   // Animation State
@@ -153,16 +157,22 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
   }, [details]);
 
   const assignableDays = useMemo(() => {
-    const days = itineraryDays.length ? itineraryDays : [1];
-    const nextDay = Math.max(...days) + 1;
-    return [...days, nextDay];
+    return itineraryDays.length ? itineraryDays : [1];
   }, [itineraryDays]);
 
   const loadItineraryContext = useCallback(async (selectedId?: string | null) => {
     try {
       const builder = await itineraryService.loadBuilderData(selectedId);
-      if (builder.bundle?.days.length) {
-        setItineraryDays(builder.bundle.days.map(day => day.dayIndex));
+      const validItineraryIds = new Set(builder.itineraries.map(itinerary => itinerary.id));
+      setAddedFeedback(previous =>
+        previous && !validItineraryIds.has(previous.itineraryId)
+          ? null
+          : previous
+      );
+      if (builder.bundle) {
+        setItineraryDays(
+          getDayIndexesFromDateRange(builder.bundle.header.startDate, builder.bundle.header.endDate),
+        );
       } else {
         setItineraryDays([1]);
       }
@@ -187,10 +197,15 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
   }, [showNotice]);
 
   const selectTargetItinerary = useCallback(
-    async (itineraryId: string, selectionMode: 'auto_created' | 'single' | 'remembered' | 'picker') => {
+    async (
+      itineraryId: string,
+      selectionMode: 'auto_created' | 'single' | 'remembered' | 'picker',
+      itineraryLabel?: string | null,
+    ) => {
       if (!details) return;
       await itineraryService.setPreferredAddTargetItineraryId(itineraryId);
       setAddTargetItineraryId(itineraryId);
+      setAddTargetItineraryLabel(itineraryLabel || null);
       await loadItineraryContext(itineraryId);
       setItinerarySelectionPrompt(null);
       setDayPickerOpen(true);
@@ -217,6 +232,8 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
         return;
       }
       setDetails(data);
+      setAddedFeedback(null);
+      setAddTargetItineraryLabel(null);
       
       // GALLERY TEST MODE: Injecting extra images for verification
       data.imageUrls = [
@@ -264,6 +281,11 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
   useEffect(() => {
     void loadItineraryContext();
   }, [loadItineraryContext]);
+  useFocusEffect(
+    useCallback(() => {
+      void loadItineraryContext();
+    }, [loadItineraryContext]),
+  );
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', async nextState => {
@@ -293,7 +315,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const completeAddToDay = useCallback(
-    async (itineraryId: string, dayIndex: number, duplicateOverride: boolean) => {
+    async (itineraryId: string, dayIndex: number, duplicateOverride: boolean, itineraryLabel: string) => {
       if (!details) return;
       setAddingToItinerary(true);
       try {
@@ -302,6 +324,8 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
           activityId: details.id,
           dayIndex,
         });
+        const resolvedLabel = itineraryLabel.trim() || addTargetItineraryLabel || details.city || 'Itinerary';
+        setAddedFeedback({ itineraryId, itineraryLabel: resolvedLabel });
 
         AccessibilityInfo.announceForAccessibility(`Added ${details.title} to day ${dayIndex}`);
         exploreService.trackEvent({
@@ -315,13 +339,8 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
           },
         });
 
-        // Close local sheet first, then let native-stack back animation run cleanly.
+        // Keep details screen visible so subtle added-state feedback is perceivable.
         setDayPickerOpen(false);
-        InteractionManager.runAfterInteractions(() => {
-          setTimeout(() => {
-            navigation.goBack();
-          }, 110);
-        });
       } catch (error: any) {
         showNotice({
           title: 'ADD FAILED',
@@ -333,7 +352,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
         setDuplicatePrompt(null);
       }
     },
-    [details, navigation, showNotice],
+    [addTargetItineraryLabel, details, showNotice],
   );
 
   const handleAddToItinerary = useCallback(
@@ -351,20 +370,37 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
               metadata: { source: 'details_add' },
             });
           }
-          await selectTargetItinerary(ensured.itineraryId, 'auto_created');
+          await selectTargetItinerary(
+            ensured.itineraryId,
+            'auto_created',
+            ensured.header.destinationCity || ensured.header.title,
+          );
           return;
         }
 
         if (builder.itineraries.length === 1) {
-          await selectTargetItinerary(builder.itineraries[0].id, 'single');
+          await selectTargetItinerary(
+            builder.itineraries[0].id,
+            'single',
+            builder.itineraries[0].destinationCity || builder.itineraries[0].title,
+          );
           return;
         }
 
         const preferred = await itineraryService.getPreferredAddTargetItineraryId();
-        if (preferred && builder.itineraries.some(itinerary => itinerary.id === preferred)) {
-          await selectTargetItinerary(preferred, 'remembered');
-          return;
+        if (preferred) {
+          const preferredItinerary = builder.itineraries.find(itinerary => itinerary.id === preferred);
+          if (preferredItinerary) {
+            await selectTargetItinerary(
+              preferred,
+              'remembered',
+              preferredItinerary.destinationCity || preferredItinerary.title,
+            );
+            return;
+          }
         }
+
+        setAddTargetItineraryLabel(null);
 
         setItinerarySelectionPrompt(builder.itineraries);
       } catch (error: any) {
@@ -400,6 +436,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
         if (!builder.bundle) {
           await itineraryService.setPreferredAddTargetItineraryId(null);
           setAddTargetItineraryId(null);
+          setAddTargetItineraryLabel(null);
           setDuplicatePrompt(null);
           setDayPickerOpen(false);
           showNotice({
@@ -419,11 +456,17 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
             itineraryId: addTargetItineraryId,
             dayIndex,
             duplicateDayIndex: duplicateDay,
+            itineraryLabel: builder.bundle.header.destinationCity || builder.bundle.header.title,
           });
           return;
         }
 
-        await completeAddToDay(addTargetItineraryId, dayIndex, false);
+        await completeAddToDay(
+          addTargetItineraryId,
+          dayIndex,
+          false,
+          builder.bundle.header.destinationCity || builder.bundle.header.title,
+        );
       } catch (error: any) {
         setDuplicatePrompt(null);
         showNotice({
@@ -511,7 +554,15 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
         contentContainerStyle={styles.scrollContent}
       >
         {/* Gallery Hero - Inside ScrollView for direct interaction */}
-        <Animated.View style={[styles.heroInFlow, heroAnimatedStyle]}>
+        <Animated.View style={[styles.heroInFlow, addedFeedback && styles.heroInFlowAdded, heroAnimatedStyle]}>
+          {addedFeedback && <View pointerEvents="none" style={styles.heroAddedOverlay} />}
+          {addedFeedback && (
+            <View pointerEvents="none" style={styles.heroAddedBadge}>
+              <Text numberOfLines={1} style={styles.heroAddedBadgeText}>
+                {`Added · ${addedFeedback.itineraryLabel}`}
+              </Text>
+            </View>
+          )}
           <Animated.FlatList
             data={images}
             horizontal
@@ -678,7 +729,11 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
                   key={itinerary.id}
                   style={styles.dayPickerPill}
                   onPress={() => {
-                    void selectTargetItinerary(itinerary.id, 'picker');
+                    void selectTargetItinerary(
+                      itinerary.id,
+                      'picker',
+                      itinerary.destinationCity || itinerary.title,
+                    );
                   }}
                 >
                   <Text style={styles.dayPickerPillText} numberOfLines={1}>
@@ -706,7 +761,9 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
         <View style={styles.modalBackdrop}>
           <View style={styles.dayPickerCard}>
             <Text style={styles.dayPickerTitle}>ADD TO ITINERARY</Text>
-            <Text style={styles.dayPickerSubtitle}>Choose a day for "{details.title}".</Text>
+            <Text style={styles.dayPickerSubtitle}>
+              {`Itinerary: ${(addTargetItineraryLabel || details.city || 'Open Road').toUpperCase()}`}
+            </Text>
 
             {duplicatePrompt && (
               <View style={styles.duplicateInlineCard}>
@@ -731,6 +788,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
                         duplicatePrompt.itineraryId,
                         duplicatePrompt.dayIndex,
                         true,
+                        duplicatePrompt.itineraryLabel,
                       );
                     }}
                     disabled={addingToItinerary}
@@ -752,7 +810,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
                   }}
                 >
                   <Text style={styles.dayPickerPillText}>
-                    {day === Math.max(...assignableDays) ? `NEW DAY ${day}` : `DAY ${day}`}
+                    {`DAY ${day}`}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -810,6 +868,33 @@ const styles = StyleSheet.create({
   loadingText: { fontFamily: 'Inter_700Bold', fontSize: 10, letterSpacing: 2, color: '#999', marginTop: 20 },
   
   heroInFlow: { width: '100%', height: HERO_HEIGHT, overflow: 'hidden', zIndex: 1 },
+  heroInFlowAdded: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  heroAddedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+    backgroundColor: 'rgba(120, 127, 136, 0.28)',
+  },
+  heroAddedBadge: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    maxWidth: '82%',
+    zIndex: 4,
+    backgroundColor: 'rgba(244, 246, 249, 0.92)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  heroAddedBadgeText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    color: '#2B2F36',
+  },
   heroImageItem: { width: width, height: '100%' },
   heroGradient: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
 

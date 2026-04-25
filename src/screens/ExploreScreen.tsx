@@ -45,8 +45,9 @@ import {
 import { exploreService } from '../services/explore';
 import { discoveryService } from '../services/discovery';
 import { isItineraryLimitError, itineraryService } from '../services/itinerary';
-import { ItineraryDay, ItineraryHeader, ItineraryListItem } from '../types/itinerary';
+import { ItineraryListItem } from '../types/itinerary';
 import { Calendar } from 'react-native-calendars';
+import { clampEndDateToMaxDays, getDayIndexesFromDateRange, MAX_ITINERARY_DAYS } from '../utils/itineraryDays';
 
 const { height, width } = Dimensions.get('window');
 
@@ -174,10 +175,20 @@ const ExploreScreen = () => {
   const [addActionStep, setAddActionStep] = useState<'pick_itinerary' | 'pick_day'>('pick_day');
   const [addTargetItineraryId, setAddTargetItineraryId] = useState<string | null>(null);
   const [addTargetItineraryLabel, setAddTargetItineraryLabel] = useState<string | null>(null);
+  const [allowInlineCreateOnDayPick, setAllowInlineCreateOnDayPick] = useState(false);
+  const [pendingInlineCreate, setPendingInlineCreate] = useState<{
+    activity: ExploreActivity;
+    dayIndex: number;
+    destinationCity: string;
+  } | null>(null);
   // Curation State
   const [itineraryDays, setItineraryDays] = useState<number[]>([]);
   const [activeItineraryId, setActiveItineraryId] = useState<string | null>(null);
+  const [availableItineraryIds, setAvailableItineraryIds] = useState<string[]>([]);
   const [addingToItinerary, setAddingToItinerary] = useState(false);
+  const [addedFeedbackByActivityIdentity, setAddedFeedbackByActivityIdentity] = useState<
+    Record<string, { itineraryId: string; itineraryLabel: string }>
+  >({});
   const [duplicatePrompt, setDuplicatePrompt] = useState<{
     itineraryId: string;
     dayIndex: number;
@@ -195,20 +206,38 @@ const ExploreScreen = () => {
     setAddActionStep('pick_day');
     setAddTargetItineraryId(null);
     setAddTargetItineraryLabel(null);
+    setAllowInlineCreateOnDayPick(false);
+    setPendingInlineCreate(null);
   }, []);
 
   const loadItineraryContext = useCallback(async (selectedId?: string | null) => {
     try {
       const builder = await itineraryService.loadBuilderData(selectedId);
       setActiveItineraryId(builder.activeItineraryId);
+      setAvailableItineraryIds(builder.itineraries.map(itinerary => itinerary.id));
+      const validItineraryIds = new Set(builder.itineraries.map(itinerary => itinerary.id));
+      setAddedFeedbackByActivityIdentity(previous => {
+        const next: Record<string, { itineraryId: string; itineraryLabel: string }> = {};
+        Object.entries(previous).forEach(([activityIdentity, feedback]) => {
+          if (validItineraryIds.has(feedback.itineraryId)) {
+            next[activityIdentity] = feedback;
+          }
+        });
+        return Object.keys(next).length === Object.keys(previous).length ? previous : next;
+      });
       if (builder.bundle) {
-        const days = builder.bundle.days.map((d: ItineraryDay) => d.dayIndex);
-        setItineraryDays(days.length > 0 ? days : [1]);
+        setItineraryDays(
+          getDayIndexesFromDateRange(builder.bundle.header.startDate, builder.bundle.header.endDate),
+        );
       } else {
         setItineraryDays([1]);
       }
     } catch {
       console.warn('Failed to fetch itinerary context');
+      setActiveItineraryId(null);
+      setItineraryDays([1]);
+      setAvailableItineraryIds([]);
+      setAddedFeedbackByActivityIdentity({});
     }
   }, []);
 
@@ -283,12 +312,15 @@ const ExploreScreen = () => {
     setCalendarStartDate('');
     setCalendarEndDate('');
     setCalendarTarget(null);
+    setAllowInlineCreateOnDayPick(false);
+    setPendingInlineCreate(null);
     setAddActionMenuActivity(null);
     setAddActionStep('pick_day');
     setAddTargetItineraryId(null);
     setAddTargetItineraryLabel(null);
     setDuplicatePrompt(null);
     setItinerarySelectionPrompt(null);
+    setAddedFeedbackByActivityIdentity({});
     setFilterOpen(false);
     setFilters(DEFAULT_FILTERS);
     setListLayout('list');
@@ -350,6 +382,14 @@ const ExploreScreen = () => {
     }, [loadItineraryContext, duplicatePrompt, calendarOpen, itinerarySelectionPrompt, addActionMenuActivity, addActionStep, addTargetItineraryId, closeInlineAddPanel, filterOpen, citySuggestions.length, showVibeSearchHint, hasSearched, resetToExploreLanding])
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setAddedFeedbackByActivityIdentity({});
+      };
+    }, [])
+  );
+
   useEffect(() => {
     if (query.trim().length > 0) {
       setShowVibeSearchHint(false);
@@ -357,18 +397,26 @@ const ExploreScreen = () => {
   }, [query]);
 
   const assignableDays = useMemo(() => {
-    const days = itineraryDays.length ? itineraryDays : [1];
-    const nextDay = Math.max(...days) + 1;
-    return [...days, nextDay];
+    return itineraryDays.length ? itineraryDays : [1];
   }, [itineraryDays]);
-  const maxAssignableDay = useMemo(
-    () => (assignableDays.length ? Math.max(...assignableDays) : 1),
-    [assignableDays],
+  const isCreateOnDayPickMode = useMemo(
+    () => allowInlineCreateOnDayPick && !addTargetItineraryId,
+    [addTargetItineraryId, allowInlineCreateOnDayPick],
+  );
+  const inlineDayOptions = useMemo(
+    () => (isCreateOnDayPickMode ? [1] : assignableDays),
+    [assignableDays, isCreateOnDayPickMode],
   );
   const activeInlineActivityIdentity = useMemo(
     () => (addActionMenuActivity ? getActivityIdentity(addActionMenuActivity) : null),
     [addActionMenuActivity],
   );
+  const itineraryHeaderFallbackLabel = useMemo(() => {
+    const searchContext = destination?.trim() || query.trim();
+    if (searchContext) return searchContext;
+    if (addActionMenuActivity?.city?.trim()) return addActionMenuActivity.city.trim();
+    return 'Open Road';
+  }, [addActionMenuActivity, destination, query]);
   const flatListPerfKey = useMemo(() => {
     const duplicateKey = duplicatePrompt
       ? `${duplicatePrompt.itineraryId}:${duplicatePrompt.dayIndex}:${duplicatePrompt.duplicateDayIndex}`
@@ -410,37 +458,35 @@ const ExploreScreen = () => {
     setCalendarStartDate('');
     setCalendarEndDate('');
     setCalendarTarget(null);
+    setPendingInlineCreate(null);
   }, []);
 
-  const openCalendarForHeader = useCallback((header: Pick<ItineraryHeader, 'id' | 'title' | 'destinationCity' | 'startDate' | 'endDate'>) => {
-    setCalendarTarget({
-      itineraryId: header.id,
-      title: header.title,
-      destinationCity: header.destinationCity,
-    });
-    setCalendarStartDate(header.startDate || '');
-    setCalendarEndDate(header.endDate || '');
-    setCalendarOpen(true);
-  }, []);
-
-  const createAndActivateItineraryForCity = useCallback(
-    async (selectedCity: string) => {
-      const created = await itineraryService.createItinerary({
-        title: `${selectedCity} Trip`,
-        destinationCity: selectedCity,
-        startDate: null,
-        endDate: null,
+  const openCalendarForInlineCreate = useCallback(
+    (activity: ExploreActivity, dayIndex: number, destinationCity: string) => {
+      setPendingInlineCreate({
+        activity,
+        dayIndex,
+        destinationCity,
       });
-      await loadItineraryContext(created.id);
-      openCalendarForHeader(created);
-      return created;
+      setCalendarTarget(null);
+      setCalendarStartDate('');
+      setCalendarEndDate('');
+      setCalendarOpen(true);
     },
-    [loadItineraryContext, openCalendarForHeader],
+    [],
   );
 
   const markRailImageFailed = useCallback((key: string) => {
     setFailedRailImages(current => (current[key] ? current : { ...current, [key]: true }));
   }, []);
+
+  const showMaxDaysNotice = useCallback(() => {
+    showNotice({
+      title: 'MAX 14 DAYS',
+      message: `Trips are capped at ${MAX_ITINERARY_DAYS} days.`,
+      type: 'warning',
+    });
+  }, [showNotice]);
 
   const handleCalendarDayPress = useCallback(
     (dateString: string) => {
@@ -456,24 +502,99 @@ const ExploreScreen = () => {
         return;
       }
 
-      setCalendarEndDate(dateString);
+      const { endDate, wasClamped } = clampEndDateToMaxDays(
+        calendarStartDate,
+        dateString,
+        MAX_ITINERARY_DAYS,
+      );
+      setCalendarEndDate(endDate);
+      if (wasClamped) {
+        showMaxDaysNotice();
+      }
     },
-    [calendarEndDate, calendarStartDate],
+    [calendarEndDate, calendarStartDate, showMaxDaysNotice],
   );
 
   const handleApplyCalendarDates = useCallback(async () => {
+    if (pendingInlineCreate && calendarStartDate) {
+      setCalendarApplying(true);
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const destinationCity = pendingInlineCreate.destinationCity.trim() || 'Open Road';
+        const normalizedEndDate =
+          calendarEndDate || calendarStartDate;
+        const { endDate: cappedEndDate, wasClamped } = clampEndDateToMaxDays(
+          calendarStartDate,
+          normalizedEndDate,
+          MAX_ITINERARY_DAYS,
+        );
+        if (wasClamped) {
+          showMaxDaysNotice();
+        }
+        const created = await itineraryService.createItinerary({
+          title: `${destinationCity} Trip`,
+          destinationCity,
+          startDate: calendarStartDate,
+          endDate: cappedEndDate,
+        });
+
+        exploreService.trackEvent({
+          eventName: 'itinerary_created_auto',
+          metadata: {
+            source: 'explore_add',
+            trigger: 'inline_day_selection',
+            has_dates: true,
+            day_index: pendingInlineCreate.dayIndex,
+            created_on: today,
+          },
+        });
+
+        await selectTargetItinerary(created.id, 'auto_created', created.destinationCity || created.title);
+        closeCalendar();
+        await completeAddToDay(
+          pendingInlineCreate.activity,
+          pendingInlineCreate.dayIndex,
+          created.id,
+          false,
+          created.destinationCity || created.title,
+        );
+      } catch (error: any) {
+        if (isItineraryLimitError(error)) {
+          showItineraryLimitWarning();
+        } else {
+          showNotice({
+            title: 'ADD FAILED',
+            message: error?.message || 'Could not create a new itinerary right now.',
+            type: 'error',
+          });
+        }
+        setCalendarApplying(false);
+      }
+      return;
+    }
+
     if (!calendarTarget || !calendarStartDate) {
       closeCalendar();
       return;
     }
     setCalendarApplying(true);
     try {
+      const normalizedEndDate =
+        calendarEndDate || calendarStartDate;
+      const { endDate: cappedEndDate, wasClamped } = clampEndDateToMaxDays(
+        calendarStartDate,
+        normalizedEndDate,
+        MAX_ITINERARY_DAYS,
+      );
+      if (wasClamped) {
+        showMaxDaysNotice();
+      }
       await itineraryService.updateItineraryDetails({
         itineraryId: calendarTarget.itineraryId,
         title: calendarTarget.title,
         destinationCity: calendarTarget.destinationCity,
         startDate: calendarStartDate,
-        endDate: calendarEndDate || calendarStartDate,
+        endDate: cappedEndDate,
       });
       await loadItineraryContext(calendarTarget.itineraryId);
       closeCalendar();
@@ -485,7 +606,68 @@ const ExploreScreen = () => {
       });
       setCalendarApplying(false);
     }
-  }, [calendarEndDate, calendarStartDate, calendarTarget, closeCalendar, loadItineraryContext, showNotice]);
+  }, [
+    calendarEndDate,
+    calendarStartDate,
+    calendarTarget,
+    closeCalendar,
+    completeAddToDay,
+    loadItineraryContext,
+    pendingInlineCreate,
+    selectTargetItinerary,
+    showMaxDaysNotice,
+    showItineraryLimitWarning,
+    showNotice,
+  ]);
+
+  const handleCalendarSetLater = useCallback(async () => {
+    if (!pendingInlineCreate) {
+      closeCalendar();
+      return;
+    }
+
+    setCalendarApplying(true);
+    try {
+      const destinationCity = pendingInlineCreate.destinationCity.trim() || 'Open Road';
+      const created = await itineraryService.createItinerary({
+        title: `${destinationCity} Trip`,
+        destinationCity,
+        startDate: null,
+        endDate: null,
+      });
+
+      exploreService.trackEvent({
+        eventName: 'itinerary_created_auto',
+        metadata: {
+          source: 'explore_add',
+          trigger: 'inline_day_selection',
+          has_dates: false,
+          day_index: pendingInlineCreate.dayIndex,
+        },
+      });
+
+      await selectTargetItinerary(created.id, 'auto_created', created.destinationCity || created.title);
+      closeCalendar();
+      await completeAddToDay(
+        pendingInlineCreate.activity,
+        pendingInlineCreate.dayIndex,
+        created.id,
+        false,
+        created.destinationCity || created.title,
+      );
+    } catch (error: any) {
+      if (isItineraryLimitError(error)) {
+        showItineraryLimitWarning();
+      } else {
+        showNotice({
+          title: 'ADD FAILED',
+          message: error?.message || 'Could not create a new itinerary right now.',
+          type: 'error',
+        });
+      }
+      setCalendarApplying(false);
+    }
+  }, [closeCalendar, completeAddToDay, pendingInlineCreate, selectTargetItinerary, showItineraryLimitWarning, showNotice]);
 
   const showItineraryLimitWarning = useCallback(() => {
     showNotice({
@@ -513,6 +695,7 @@ const ExploreScreen = () => {
       setAddTargetItineraryLabel(targetLabel || null);
       setItinerarySelectionPrompt(null);
       setAddActionStep('pick_day');
+      setAllowInlineCreateOnDayPick(false);
       await loadItineraryContext(itineraryId);
       if (addActionMenuActivity) {
         exploreService.trackEvent({
@@ -536,26 +719,17 @@ const ExploreScreen = () => {
     ): Promise<string | null> => {
       try {
         const { forcePicker = false, useLastItinerary = true } = options;
-        const fallbackDestination =
-          latestSearchContextRef.current.destination ||
-          latestSearchContextRef.current.query ||
-          activity.city ||
-          'Open Road';
         const builder = await itineraryService.loadBuilderData();
         const selectableItineraries = builder.itineraries.filter(itinerary => itinerary.status !== 'archived');
         if (!selectableItineraries.length) {
-          const ensured = await itineraryService.ensureActiveItinerary({
-            destinationCity: fallbackDestination,
-          });
-          if (ensured.created) {
-            exploreService.trackEvent({
-              eventName: 'itinerary_created_auto',
-              metadata: { source: 'explore_add' },
-            });
-          }
-          await selectTargetItinerary(ensured.itineraryId, 'auto_created', fallbackDestination);
-          return ensured.itineraryId;
+          setAllowInlineCreateOnDayPick(true);
+          setItinerarySelectionPrompt([]);
+          setAddActionStep('pick_day');
+          setAddTargetItineraryId(null);
+          setAddTargetItineraryLabel(null);
+          return null;
         }
+        setAllowInlineCreateOnDayPick(false);
 
         if (selectableItineraries.length === 1) {
           const single = selectableItineraries[0];
@@ -578,6 +752,7 @@ const ExploreScreen = () => {
         setAddActionStep('pick_itinerary');
         return null;
       } catch (error: any) {
+        setAllowInlineCreateOnDayPick(false);
         if (isItineraryLimitError(error)) {
           showItineraryLimitWarning();
           return null;
@@ -605,6 +780,7 @@ const ExploreScreen = () => {
       setAddActionStep('pick_day');
       setAddTargetItineraryId(null);
       setAddTargetItineraryLabel(null);
+      setAllowInlineCreateOnDayPick(false);
       setDuplicatePrompt(null);
       setItinerarySelectionPrompt(null);
       await resolveAddTargetForActivity(activity, { useLastItinerary: true });
@@ -625,46 +801,22 @@ const ExploreScreen = () => {
   }, [addActionMenuActivity, addActionStep, addTargetItineraryId, resolveAddTargetForActivity]);
 
   const handleCreateItineraryFromInlineAdd = useCallback(async () => {
-    if (!addActionMenuActivity) return;
     setDuplicatePrompt(null);
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const fallbackDestination =
-        latestSearchContextRef.current.destination ||
-        latestSearchContextRef.current.query ||
-        addActionMenuActivity.city ||
-        'Open Road';
-      const created = await itineraryService.createItinerary({
-        title: `Trip ${today}`,
-        destinationCity: fallbackDestination,
-        startDate: null,
-        endDate: null,
-      });
-      exploreService.trackEvent({
-        eventName: 'itinerary_created_auto',
-        metadata: {
-          source: 'explore_add',
-          trigger: 'inline_add_create',
-        },
-      });
-      await selectTargetItinerary(created.id, 'auto_created', created.destinationCity || created.title);
-      const builder = await itineraryService.loadBuilderData(created.id);
-      setItinerarySelectionPrompt(builder.itineraries);
-    } catch (error: any) {
-      if (isItineraryLimitError(error)) {
-        showItineraryLimitWarning();
-        return;
-      }
-      showNotice({
-        title: 'ADD FAILED',
-        message: error?.message || 'Could not create a new itinerary right now.',
-        type: 'error',
-      });
-    }
-  }, [addActionMenuActivity, selectTargetItinerary, showItineraryLimitWarning, showNotice]);
+    setItinerarySelectionPrompt(null);
+    setAddTargetItineraryId(null);
+    setAddTargetItineraryLabel(null);
+    setAddActionStep('pick_day');
+    setAllowInlineCreateOnDayPick(true);
+  }, []);
 
   const completeAddToDay = useCallback(
-    async (activity: ExploreActivity, dayIndex: number, itineraryId: string, duplicateOverride: boolean) => {
+    async (
+      activity: ExploreActivity,
+      dayIndex: number,
+      itineraryId: string,
+      duplicateOverride: boolean,
+      itineraryLabel: string,
+    ) => {
       setAddingToItinerary(true);
       try {
         const nextBundle = await itineraryService.addActivityToDay({
@@ -672,8 +824,15 @@ const ExploreScreen = () => {
           activityId: activity.id,
           dayIndex,
         });
-        const days = nextBundle.days.map(day => day.dayIndex);
-        setItineraryDays(days.length ? days : [1]);
+        setItineraryDays(
+          getDayIndexesFromDateRange(nextBundle.header.startDate, nextBundle.header.endDate),
+        );
+        const activityIdentity = getActivityIdentity(activity);
+        const resolvedLabel = itineraryLabel.trim() || 'Itinerary';
+        setAddedFeedbackByActivityIdentity(previous => ({
+          ...previous,
+          [activityIdentity]: { itineraryId, itineraryLabel: resolvedLabel },
+        }));
 
         AccessibilityInfo.announceForAccessibility(`Added ${activity.title} to day ${dayIndex}`);
         exploreService.trackEvent({
@@ -713,6 +872,17 @@ const ExploreScreen = () => {
         targetItineraryId = await resolveAddTargetForActivity(addActionMenuActivity, { useLastItinerary: true });
       }
       if (!targetItineraryId) {
+        const fallbackDestination =
+          latestSearchContextRef.current.destination ||
+          latestSearchContextRef.current.query ||
+          addActionMenuActivity.city ||
+          'Open Road';
+        const builder = await itineraryService.loadBuilderData();
+        const hasSelectableItineraries = builder.itineraries.some(itinerary => itinerary.status !== 'archived');
+        if (!hasSelectableItineraries || allowInlineCreateOnDayPick) {
+          openCalendarForInlineCreate(addActionMenuActivity, dayIndex, fallbackDestination);
+          return;
+        }
         showNotice({
           title: 'CHOOSE ITINERARY',
           message: "Travis: 'Pick an itinerary first, then choose your day.'",
@@ -761,7 +931,13 @@ const ExploreScreen = () => {
           return;
         }
 
-        await completeAddToDay(addActionMenuActivity, dayIndex, targetItineraryId, false);
+        await completeAddToDay(
+          addActionMenuActivity,
+          dayIndex,
+          targetItineraryId,
+          false,
+          builder.bundle.header.destinationCity || builder.bundle.header.title,
+        );
       } catch (error: any) {
         setDuplicatePrompt(null);
         setAddActionMenuActivity(null);
@@ -775,7 +951,16 @@ const ExploreScreen = () => {
         });
       }
     },
-    [addActionMenuActivity, addTargetItineraryId, addingToItinerary, completeAddToDay, resolveAddTargetForActivity, showNotice],
+    [
+      addActionMenuActivity,
+      addTargetItineraryId,
+      addingToItinerary,
+      allowInlineCreateOnDayPick,
+      completeAddToDay,
+      openCalendarForInlineCreate,
+      resolveAddTargetForActivity,
+      showNotice,
+    ],
   );
 
   const runSearch = useCallback(
@@ -796,6 +981,7 @@ const ExploreScreen = () => {
       setHasSearched(true);
       setFilterOpen(false);
       setShowVibeSearchHint(false);
+      setAddedFeedbackByActivityIdentity({});
 
       try {
         const result = await exploreService.search({
@@ -862,23 +1048,18 @@ const ExploreScreen = () => {
       const trimmedCity = cityLabel.trim();
       if (!trimmedCity) return;
       try {
-        setQuery(trimmedCity);
+        setQuery('');
         setCitySuggestions([]);
         setNearMeActive(false);
+        setCoords(null);
         setPendingVibeId(null);
         setShowVibeSearchHint(false);
 
         const geocoded = await discoveryService.geocode(trimmedCity, placeId || undefined);
-        if (geocoded) setCoords(geocoded);
+        const nextCoords = geocoded || null;
+        setCoords(nextCoords);
 
-        const builder = await itineraryService.loadBuilderData();
-        const existingBundle = builder.bundle;
-
-        if (!existingBundle || !builder.activeItineraryId) {
-          await createAndActivateItineraryForCity(trimmedCity);
-        } else {
-          await loadItineraryContext(builder.activeItineraryId);
-        }
+        await loadItineraryContext();
 
         const nextFilters = pendingVibeId
           ? { ...filters, categories: [pendingVibeId] }
@@ -896,7 +1077,12 @@ const ExploreScreen = () => {
           },
         });
 
-        await runSearch({ queryOverride: trimmedCity, nearMeOverride: false, filtersOverride: nextFilters });
+        await runSearch({
+          queryOverride: trimmedCity,
+          nearMeOverride: false,
+          coordsOverride: nextCoords,
+          filtersOverride: nextFilters,
+        });
       } catch (error: any) {
         showNotice({
           title: 'SEARCH FAILED',
@@ -905,7 +1091,7 @@ const ExploreScreen = () => {
         });
       }
     },
-    [createAndActivateItineraryForCity, filters, loadItineraryContext, pendingVibeId, runSearch, showNotice],
+    [filters, loadItineraryContext, pendingVibeId, runSearch, showNotice],
   );
 
   const handleSearchPress = useCallback(async () => {
@@ -972,6 +1158,10 @@ const ExploreScreen = () => {
 
   const renderActivityCard = useCallback(({ item }: { item: ExploreActivity; index: number }) => {
     const identity = getActivityIdentity(item);
+    const addedFeedback = addedFeedbackByActivityIdentity[identity];
+    const hasBeenAdded = Boolean(
+      addedFeedback?.itineraryLabel && availableItineraryIds.includes(addedFeedback.itineraryId),
+    );
     const isGrid = listLayout === 'grid';
     const isInlineAddOpen = activeInlineActivityIdentity === identity;
     const itineraryChips = itinerarySelectionPrompt || [];
@@ -994,6 +1184,13 @@ const ExploreScreen = () => {
             colors={['transparent', 'rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.8)']}
             style={styles.storyGradient}
           />
+          {hasBeenAdded && (
+            <View pointerEvents="none" style={styles.storyAddedBadge}>
+              <Text numberOfLines={1} style={styles.storyAddedBadgeText}>
+                {`Added · ${addedFeedback?.itineraryLabel}`}
+              </Text>
+            </View>
+          )}
           <View style={[styles.storyContent, isGrid && styles.storyContentGrid]}>
             <View style={[styles.storyHeader, isGrid && styles.storyHeaderGrid]}>
               <View style={{ flex: 1 }}>
@@ -1064,7 +1261,7 @@ const ExploreScreen = () => {
                 >
                   <Text style={styles.inlineItineraryCaption}>ITINERARY</Text>
                   <Text style={styles.inlineItineraryValue} numberOfLines={1}>
-                    {addTargetItineraryLabel ? `Itinerary: ${addTargetItineraryLabel}` : 'Itinerary: Choose one'}
+                    {`Itinerary: ${addTargetItineraryLabel || itineraryHeaderFallbackLabel}`}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1136,6 +1333,7 @@ const ExploreScreen = () => {
                           duplicatePrompt.dayIndex,
                           duplicatePrompt.itineraryId,
                           true,
+                          addTargetItineraryLabel || itineraryHeaderFallbackLabel,
                         );
                       }}
                       disabled={addingToItinerary}
@@ -1148,17 +1346,20 @@ const ExploreScreen = () => {
 
               {addActionStep === 'pick_day' && (
                 <View style={styles.inlineChipRow}>
-                  {assignableDays.map(day => (
+                  {inlineDayOptions.map(day => (
                     <TouchableOpacity
                       key={day}
-                      style={[styles.inlineChip, !addTargetItineraryId && styles.inlineChipDisabled]}
+                      style={[
+                        styles.inlineChip,
+                        !addTargetItineraryId && !allowInlineCreateOnDayPick && styles.inlineChipDisabled,
+                      ]}
                       onPress={() => {
                         void handleAddToDayPress(day);
                       }}
-                      disabled={addingToItinerary || !addTargetItineraryId}
+                      disabled={addingToItinerary || (!addTargetItineraryId && !allowInlineCreateOnDayPick)}
                     >
                       <Text style={styles.inlineChipText}>
-                        {day === maxAssignableDay ? `NEW DAY ${day}` : `DAY ${day}`}
+                        {`DAY ${day}`}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -1178,11 +1379,14 @@ const ExploreScreen = () => {
       </View>
     );
   }, [
+    addedFeedbackByActivityIdentity,
+    availableItineraryIds,
     listLayout,
     activeInlineActivityIdentity,
     itinerarySelectionPrompt,
     beginAddToItinerary,
     navigation,
+    itineraryHeaderFallbackLabel,
     addTargetItineraryLabel,
     handleToggleItineraryPicker,
     handleCreateItineraryFromInlineAdd,
@@ -1192,8 +1396,8 @@ const ExploreScreen = () => {
     selectTargetItinerary,
     duplicatePrompt,
     completeAddToDay,
-    assignableDays,
-    maxAssignableDay,
+    inlineDayOptions,
+    allowInlineCreateOnDayPick,
     handleAddToDayPress,
     closeInlineAddPanel,
   ]);
@@ -1536,7 +1740,7 @@ const ExploreScreen = () => {
           <View style={styles.calendarCard}>
             <Text style={styles.calendarTitle}>Set trip dates (optional)</Text>
             <Text style={styles.calendarSubtitle}>
-              {calendarTarget?.destinationCity || 'Your itinerary'}
+              {pendingInlineCreate?.destinationCity || calendarTarget?.destinationCity || 'Your itinerary'}
             </Text>
             <Text style={styles.calendarHint}>Pick a start and end date, or set them later.</Text>
             <Calendar
@@ -1553,7 +1757,13 @@ const ExploreScreen = () => {
               onDayPress={day => handleCalendarDayPress(day.dateString)}
             />
             <View style={styles.calendarActions}>
-              <TouchableOpacity style={styles.calendarSecondary} onPress={closeCalendar} disabled={calendarApplying}>
+              <TouchableOpacity
+                style={styles.calendarSecondary}
+                onPress={() => {
+                  void handleCalendarSetLater();
+                }}
+                disabled={calendarApplying}
+              >
                 <Text style={styles.calendarSecondaryText}>Set Later</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -1703,8 +1913,34 @@ const styles = StyleSheet.create({
   storyCardGridContainer: { paddingHorizontal: 0, width: (Dimensions.get('window').width - 64 - 16) / 2, marginTop: 16 },
   storyCard: { width: '100%', height: 480, borderRadius: 24, overflow: 'hidden', backgroundColor: '#F0F0F0' },
   storyCardGrid: { height: 260, borderRadius: 16 },
+  storyCardAdded: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+  },
   storyImage: { ...StyleSheet.absoluteFillObject },
+  storyAddedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(120, 127, 136, 0.28)',
+  },
   storyGradient: { ...StyleSheet.absoluteFillObject },
+  storyAddedBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    maxWidth: '82%',
+    zIndex: 3,
+    backgroundColor: 'rgba(244, 246, 249, 0.92)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  storyAddedBadgeText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    color: '#2B2F36',
+  },
   storyContent: { flex: 1, justifyContent: 'flex-end', padding: 32 },
   storyContentGrid: { padding: 16 },
   storyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },

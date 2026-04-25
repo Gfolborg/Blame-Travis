@@ -6,6 +6,7 @@ import {
   compactDaysAfterRemoval,
   computeDayConflicts,
   computeHopWarnings,
+  getDateRangeAfterDayRemoval,
   reorderWithIndices,
   inferDistanceUnit,
 } from './itinerary';
@@ -82,5 +83,23 @@ describe('itineraryService helpers', () => {
     expect(compacted[1].items[0].dayIndex).toBe(2);
     expect(compacted[2].items[0].activityId).toBe('a4');
     expect(compacted[2].items[0].dayIndex).toBe(3);
+  });
+
+  it('trims end date by one day when removing from a multi-day date range', () => {
+    const result = getDateRangeAfterDayRemoval('2026-05-01', '2026-05-05');
+    expect(result).toEqual({
+      startDate: '2026-05-01',
+      endDate: '2026-05-04',
+      shouldCompactDays: true,
+    });
+  });
+
+  it('keeps date range unchanged when only one planned day remains', () => {
+    const result = getDateRangeAfterDayRemoval('2026-05-01', '2026-05-01');
+    expect(result).toEqual({
+      startDate: '2026-05-01',
+      endDate: '2026-05-01',
+      shouldCompactDays: false,
+    });
   });
 });

@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   ActivityIndicator,
+  AccessibilityInfo,
+  Animated,
+  Easing,
   Modal,
   ScrollView,
   StyleSheet,
@@ -18,7 +21,7 @@ import {
   BookOpen, 
 } from 'lucide-react-native';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Calendar } from 'react-native-calendars';
 
 import { useNotice } from '../components/TravisNotice';
@@ -33,6 +36,7 @@ import {
   ItineraryBundle,
 } from '../types/itinerary';
 import { MainTabScreenProps } from '../types/navigation';
+import { clampEndDateToMaxDays, getDayIndexesFromDateRange, MAX_ITINERARY_DAYS } from '../utils/itineraryDays';
 
 const TITLE_MAX_LENGTH = 80;
 const DESTINATION_MAX_LENGTH = 80;
@@ -211,6 +215,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
   const bookingTrackingEnabled = isFeatureEnabled('booking_tracking_v1_enabled');
   const { showNotice } = useNotice();
   const mapRef = useRef<any>(null);
+  const isScreenFocused = useIsFocused();
 
   const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
@@ -221,11 +226,15 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
   const [activeItineraryId, setActiveItineraryId] = useState<string | null>(null);
   const [bundle, setBundle] = useState<ItineraryBundle | null>(null);
   const [selectedDayIndex, setSelectedDayIndex] = useState(1);
-  const [virtualDays, setVirtualDays] = useState<number[]>([]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createCalendarOpen, setCreateCalendarOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarDraftStartDate, setCalendarDraftStartDate] = useState('');
+  const [calendarDraftEndDate, setCalendarDraftEndDate] = useState('');
+  const [titleViewportWidth, setTitleViewportWidth] = useState(0);
+  const [titleTextWidth, setTitleTextWidth] = useState(0);
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
 
   const [createTitle, setCreateTitle] = useState('');
   const [createDestination, setCreateDestination] = useState('');
@@ -238,6 +247,9 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     type: 'remove_day';
     dayIndex: number;
   } | null>(null);
+  const marqueeOffset = useRef(new Animated.Value(0)).current;
+  const marqueeRunning = useRef(false);
+  const marqueeLoopAnimation = useRef<Animated.CompositeAnimation | null>(null);
 
   // Inline Draft State
   const [draftTitle, setDraftTitle] = useState('');
@@ -260,15 +272,14 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
         setActiveItineraryId(result.activeItineraryId);
         setBundle(result.bundle);
         setOfflineReadOnly(result.offline);
-        setVirtualDays([]);
 
         if (result.bundle) {
           setDraftTitle(result.bundle.header.title);
-          if (result.bundle.days?.length) {
-            setSelectedDayIndex(result.bundle.days[0].dayIndex);
-          } else {
-            setSelectedDayIndex(1);
-          }
+          const nextDayIndexes = getDayIndexesFromDateRange(
+            result.bundle.header.startDate,
+            result.bundle.header.endDate,
+          );
+          setSelectedDayIndex(nextDayIndexes[0] ?? 1);
         }
       } catch (error: any) {
         setErrorMessage(error?.message || 'Unable to load journeys right now.');
@@ -295,12 +306,15 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   const dayIndexes = useMemo(() => {
-    const indexedDays = new Set<number>();
-    bundle?.days.forEach(day => indexedDays.add(day.dayIndex));
-    virtualDays.forEach(day => indexedDays.add(day));
-    indexedDays.add(selectedDayIndex);
-    return [...indexedDays].filter(day => day > 0).sort((a, b) => a - b);
-  }, [bundle, selectedDayIndex, virtualDays]);
+    if (!bundle) return [1];
+    return getDayIndexesFromDateRange(bundle.header.startDate, bundle.header.endDate);
+  }, [bundle]);
+
+  useEffect(() => {
+    if (!dayIndexes.includes(selectedDayIndex)) {
+      setSelectedDayIndex(dayIndexes[0] ?? 1);
+    }
+  }, [dayIndexes, selectedDayIndex]);
 
   const selectedDayItems = useMemo(() => {
     const day = bundle?.days.find(item => item.dayIndex === selectedDayIndex);
@@ -309,11 +323,13 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
 
   const adaptiveTripTitleFontSize = useMemo(() => {
     const length = draftTitle.trim().length;
-    if (length <= 24) return 18;
-    if (length <= 36) return 16;
-    if (length <= 52) return 14;
-    return 12;
+    if (length <= 20) return 18;
+    if (length <= 30) return 16;
+    if (length <= 40) return 14;
+    if (length <= 55) return 12;
+    return 10;
   }, [draftTitle]);
+  const destinationTitle = useMemo(() => (bundle?.header.destinationCity || '').toUpperCase(), [bundle?.header.destinationCity]);
 
   const createDateDisplay = useMemo(() => {
     if (createStartDate && createEndDate) {
@@ -325,9 +341,35 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     return 'Set dates (optional)';
   }, [createEndDate, createStartDate]);
 
+  const itineraryDateDisplay = useMemo(() => {
+    if (!bundle) return 'Dates set later';
+    if (bundle.header.startDate && bundle.header.endDate) {
+      if (bundle.header.startDate === bundle.header.endDate) {
+        return formatDateLabel(bundle.header.startDate);
+      }
+      return `${formatDateLabel(bundle.header.startDate)} - ${formatDateLabel(bundle.header.endDate)}`;
+    }
+    if (bundle.header.startDate) {
+      return formatDateLabel(bundle.header.startDate);
+    }
+    return 'Dates set later';
+  }, [bundle]);
+  const destinationTitleRenderWidth = useMemo(() => (titleTextWidth > 0 ? titleTextWidth : 0), [titleTextWidth]);
+  const titleMarqueeDistance = useMemo(() => {
+    if (titleTextWidth <= 0) {
+      return 0;
+    }
+    return Math.max(0, titleTextWidth - titleViewportWidth);
+  }, [titleTextWidth, titleViewportWidth]);
+  const titleShouldMarquee = titleViewportWidth > 0 && titleMarqueeDistance > 12 && !reduceMotionEnabled;
+
   const createMarkedDates = useMemo(
     () => buildMarkedRange(createStartDate, createEndDate, theme.colors.textPrimary),
     [createEndDate, createStartDate]
+  );
+  const calendarDraftMarkedDates = useMemo(
+    () => buildMarkedRange(calendarDraftStartDate, calendarDraftEndDate, theme.colors.textPrimary),
+    [calendarDraftEndDate, calendarDraftStartDate],
   );
 
   const mappableDayItems = useMemo(
@@ -337,6 +379,120 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
         .filter(entry => entry.item.lat != null && entry.item.lng != null),
     [selectedDayItems]
   );
+
+  const showMaxDaysNotice = useCallback(() => {
+    showNotice({
+      title: 'MAX 14 DAYS',
+      message: `Trips are capped at ${MAX_ITINERARY_DAYS} days.`,
+      type: 'warning',
+    });
+  }, [showNotice]);
+
+  useEffect(() => {
+    let active = true;
+
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(enabled => {
+        if (active) {
+          setReduceMotionEnabled(enabled);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setReduceMotionEnabled(false);
+        }
+      });
+
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (enabled: boolean) => {
+      setReduceMotionEnabled(enabled);
+    });
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+
+  const stopTitleMarquee = useCallback(() => {
+    if (marqueeLoopAnimation.current) {
+      marqueeLoopAnimation.current.stop();
+      marqueeLoopAnimation.current = null;
+    }
+    marqueeOffset.stopAnimation();
+    marqueeOffset.setValue(0);
+    marqueeRunning.current = false;
+  }, [marqueeOffset]);
+
+  const runTitleMarquee = useCallback((forceRestart = true) => {
+    if (!titleShouldMarquee || titleMarqueeDistance <= 0) {
+      stopTitleMarquee();
+      return;
+    }
+
+    if (marqueeRunning.current && !forceRestart) {
+      return;
+    }
+
+    if (forceRestart) {
+      stopTitleMarquee();
+    }
+
+    marqueeRunning.current = true;
+    const travelDistance = titleMarqueeDistance;
+    const forwardDuration = Math.min(30000, Math.max(7000, Math.round((travelDistance / 12) * 1000)));
+
+    marqueeLoopAnimation.current = Animated.loop(
+      Animated.sequence([
+        Animated.delay(900),
+        Animated.timing(marqueeOffset, {
+          toValue: -travelDistance,
+          duration: forwardDuration,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.delay(3000),
+        Animated.timing(marqueeOffset, {
+          toValue: 0,
+          duration: 0,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ]),
+      { resetBeforeIteration: false },
+    );
+
+    marqueeLoopAnimation.current.start(({ finished }) => {
+      if (!finished) {
+        marqueeRunning.current = false;
+      }
+    });
+  }, [marqueeOffset, stopTitleMarquee, titleMarqueeDistance, titleShouldMarquee]);
+
+  useEffect(() => {
+    setTitleTextWidth(0);
+  }, [destinationTitle]);
+
+  useEffect(() => {
+    if (!isScreenFocused) {
+      stopTitleMarquee();
+      return;
+    }
+
+    if (titleShouldMarquee) {
+      runTitleMarquee(true);
+      return;
+    }
+
+    stopTitleMarquee();
+  }, [isScreenFocused, runTitleMarquee, stopTitleMarquee, titleShouldMarquee]);
+
+  const handleDestinationTitleMeasured = useCallback((width: number) => {
+    if (!Number.isFinite(width) || width <= 0) {
+      return;
+    }
+    const rounded = Math.ceil(width);
+    setTitleTextWidth(current => (current === rounded ? current : rounded));
+  }, []);
 
   const loadBookingStates = useCallback(async () => {
     if (!bookingTrackingEnabled || !selectedDayItems.length) {
@@ -402,13 +558,21 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     if (!activeItineraryId || !bundle || writesDisabled) return;
 
     try {
+      const { endDate: cappedEndDate, wasClamped } = clampEndDateToMaxDays(
+        start,
+        end,
+        MAX_ITINERARY_DAYS,
+      );
+      if (wasClamped) {
+        showMaxDaysNotice();
+      }
       setMutating(true);
       const nextBundle = await itineraryService.updateItineraryDetails({
         itineraryId: activeItineraryId,
         title: bundle.header.title,
         destinationCity: bundle.header.destinationCity,
         startDate: start,
-        endDate: end,
+        endDate: cappedEndDate,
       });
       setBundle(nextBundle);
       setCalendarOpen(false);
@@ -426,7 +590,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     } finally {
       setMutating(false);
     }
-  }, [activeItineraryId, bundle, showNotice, writesDisabled]);
+  }, [activeItineraryId, bundle, showMaxDaysNotice, showNotice, writesDisabled]);
 
   const handleCreateCalendarSelect = useCallback(
     (dateString: string) => {
@@ -442,11 +606,112 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
 
-      setCreateEndDate(dateString);
+      const { endDate, wasClamped } = clampEndDateToMaxDays(
+        createStartDate,
+        dateString,
+        MAX_ITINERARY_DAYS,
+      );
+      setCreateEndDate(endDate);
+      if (wasClamped) {
+        showMaxDaysNotice();
+      }
       setCreateCalendarOpen(false);
     },
-    [createEndDate, createStartDate]
+    [createEndDate, createStartDate, showMaxDaysNotice]
   );
+
+  const handleCalendarDraftSelect = useCallback(
+    (dateString: string) => {
+      if (!calendarDraftStartDate || (calendarDraftStartDate && calendarDraftEndDate)) {
+        setCalendarDraftStartDate(dateString);
+        setCalendarDraftEndDate('');
+        return;
+      }
+
+      if (dateString < calendarDraftStartDate) {
+        setCalendarDraftStartDate(dateString);
+        setCalendarDraftEndDate('');
+        return;
+      }
+
+      const { endDate, wasClamped } = clampEndDateToMaxDays(
+        calendarDraftStartDate,
+        dateString,
+        MAX_ITINERARY_DAYS,
+      );
+      setCalendarDraftEndDate(endDate);
+      if (wasClamped) {
+        showMaxDaysNotice();
+      }
+    },
+    [calendarDraftEndDate, calendarDraftStartDate, showMaxDaysNotice],
+  );
+
+  const openCalendarEditor = useCallback(() => {
+    if (!bundle) return;
+    setCalendarDraftStartDate(bundle.header.startDate || '');
+    setCalendarDraftEndDate(bundle.header.endDate || '');
+    setCalendarOpen(true);
+  }, [bundle]);
+
+  const closeCalendarEditor = useCallback(() => {
+    setCalendarOpen(false);
+    setCalendarDraftStartDate('');
+    setCalendarDraftEndDate('');
+  }, []);
+
+  const handleApplyCalendarDraft = useCallback(async () => {
+    if (!bundle) return;
+    if (!calendarDraftStartDate) {
+      showNotice({
+        title: 'ADD START DATE',
+        message: 'Pick a start date or tap Set Later.',
+        type: 'warning',
+      });
+      return;
+    }
+    await handleCalendarSelect(
+      calendarDraftStartDate,
+      calendarDraftEndDate || calendarDraftStartDate,
+    );
+    closeCalendarEditor();
+  }, [
+    bundle,
+    calendarDraftEndDate,
+    calendarDraftStartDate,
+    closeCalendarEditor,
+    handleCalendarSelect,
+    showNotice,
+  ]);
+
+  const handleCalendarDraftSetLater = useCallback(async () => {
+    if (!activeItineraryId || !bundle || writesDisabled) return;
+    try {
+      setMutating(true);
+      const nextBundle = await itineraryService.updateItineraryDetails({
+        itineraryId: activeItineraryId,
+        title: bundle.header.title,
+        destinationCity: bundle.header.destinationCity,
+        startDate: null,
+        endDate: null,
+      });
+      setBundle(nextBundle);
+      closeCalendarEditor();
+      showNotice({
+        title: 'DATES CLEARED',
+        message: 'Trip dates cleared. Day 1 remains active until dates are set.',
+        type: 'success',
+      });
+    } catch {
+      showNotice({
+        title: 'UPDATE FAILED',
+        message: 'Could not clear trip dates.',
+        type: 'error',
+      });
+    } finally {
+      setMutating(false);
+    }
+  }, [activeItineraryId, bundle, closeCalendarEditor, showNotice, writesDisabled]);
 
   const handleCreateItinerary = useCallback(async () => {
     if (writesDisabled) return;
@@ -480,12 +745,19 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     }
 
     try {
+      const createRangeClamp =
+        startDate && endDate
+          ? clampEndDateToMaxDays(startDate, endDate, MAX_ITINERARY_DAYS)
+          : null;
+      if (createRangeClamp?.wasClamped) {
+        showMaxDaysNotice();
+      }
       setCreating(true);
       const created = await itineraryService.createItinerary({
         title,
         destinationCity,
         startDate: startDate || null,
-        endDate: endDate || null,
+        endDate: createRangeClamp?.endDate || endDate || null,
       });
       setCreateOpen(false);
       await loadBuilderState(created.id);
@@ -506,7 +778,16 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     } finally {
       setCreating(false);
     }
-  }, [createDestination, createEndDate, createStartDate, createTitle, loadBuilderState, showNotice, writesDisabled]);
+  }, [
+    createDestination,
+    createEndDate,
+    createStartDate,
+    createTitle,
+    loadBuilderState,
+    showMaxDaysNotice,
+    showNotice,
+    writesDisabled,
+  ]);
 
   const handleRemoveItem = useCallback(
     async (item: ItineraryActivityItem) => {
@@ -564,8 +845,13 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
       if (!activeItineraryId || writesDisabled) return;
       const nextDayIndex = Math.max(1, item.dayIndex + direction);
 
-      if (direction === 1 && !dayIndexes.includes(nextDayIndex)) {
-        setVirtualDays(current => [...new Set([...current, nextDayIndex])]);
+      if (!dayIndexes.includes(nextDayIndex)) {
+        showNotice({
+          title: 'OUT OF RANGE',
+          message: 'Update trip dates to move stops into that day.',
+          type: 'warning',
+        });
+        return;
       }
 
       try {
@@ -604,10 +890,8 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   const handleAddDayShell = useCallback(() => {
-    const nextDay = Math.max(...dayIndexes, 0) + 1;
-    setVirtualDays(current => [...new Set([...current, nextDay])]);
-    setSelectedDayIndex(nextDay);
-  }, [dayIndexes]);
+    openCalendarEditor();
+  }, [openCalendarEditor]);
 
   const refresh = useCallback(async () => {
     await loadBuilderState(activeItineraryId, true);
@@ -657,6 +941,37 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
       setMutating(false);
     }
   }, [activeItineraryId, confirmAction, loadBuilderState, showNotice, writesDisabled]);
+
+  const renderStoryItem = useCallback(
+    ({ item, drag, isActive, getIndex }: RenderItemParams<ItineraryActivityItem>) => {
+      const index = getIndex();
+      if (index == null) return null;
+      return (
+        <StoryItemCard
+          item={item}
+          index={index}
+          isActive={isActive}
+          drag={drag}
+          writesDisabled={writesDisabled}
+          bookingTrackingEnabled={bookingTrackingEnabled}
+          bookingState={bookingStateByItemId[item.id]}
+          onMoveBack={handleMoveBack}
+          onMoveForward={handleMoveForward}
+          onRemove={handleRemoveItem}
+        />
+      );
+    },
+    [
+      writesDisabled,
+      bookingTrackingEnabled,
+      bookingStateByItemId,
+      handleMoveBack,
+      handleMoveForward,
+      handleRemoveItem,
+    ],
+  );
+
+  const itineraryItemKeyExtractor = useCallback((item: ItineraryActivityItem) => item.id, []);
 
   if (loading) {
     return (
@@ -793,13 +1108,42 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
       <View style={styles.masthead}>
         <View style={styles.mastheadTop}>
           <View style={styles.mastheadTitleWrap}>
-            <Text style={styles.mastheadLocationDisplay} numberOfLines={2}>
-              {bundle.header.destinationCity.toUpperCase()}
-            </Text>
+            <TouchableOpacity
+              activeOpacity={1}
+              disabled={!titleShouldMarquee}
+              style={styles.mastheadLocationViewport}
+              onLayout={event => setTitleViewportWidth(event.nativeEvent.layout.width)}
+              onPress={() => runTitleMarquee(true)}
+              accessibilityRole="button"
+              accessibilityLabel={titleShouldMarquee ? 'Replay destination title scroll' : undefined}
+            >
+              <Animated.Text
+                style={[
+                  styles.mastheadLocationDisplay,
+                  destinationTitleRenderWidth > 0 ? { width: destinationTitleRenderWidth } : null,
+                  { transform: [{ translateX: marqueeOffset }] },
+                ]}
+                numberOfLines={1}
+                ellipsizeMode="clip"
+              >
+                {destinationTitle}
+              </Animated.Text>
+            </TouchableOpacity>
+            <View pointerEvents="none" style={styles.mastheadLocationMeasureViewport}>
+              <ScrollView
+                horizontal
+                scrollEnabled={false}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.mastheadLocationMeasureContent}
+                onContentSizeChange={(width) => handleDestinationTitleMeasured(width)}
+              >
+                <Text style={styles.mastheadLocationMeasure}>{destinationTitle}</Text>
+              </ScrollView>
+            </View>
             <TextInput
               style={[
                 styles.mastheadTripTitleInput,
-                { fontSize: adaptiveTripTitleFontSize, lineHeight: adaptiveTripTitleFontSize + 4 },
+                { fontSize: adaptiveTripTitleFontSize, lineHeight: adaptiveTripTitleFontSize + 3 },
               ]}
               value={draftTitle}
               onChangeText={setDraftTitle}
@@ -812,16 +1156,14 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
               autoCapitalize="words"
               multiline={false}
               numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.65}
               maxLength={TITLE_MAX_LENGTH}
             />
-            <Text style={styles.titleCounter}>{draftTitle.trim().length}/{TITLE_MAX_LENGTH}</Text>
           </View>
           <View style={styles.mastheadRight}>
-            <TouchableOpacity onPress={() => setCalendarOpen(true)} style={styles.settingsButton}>
-              <Ionicons name="calendar-outline" size={16} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
             <TouchableOpacity onPress={handleDeleteItinerary} style={styles.settingsButton}>
-              <Trash2 size={18} color={theme.colors.textSecondary} />
+              <Trash2 size={18} color={theme.colors.error} />
             </TouchableOpacity>
             <TravisSignal size={48} status={mutating ? 'thinking' : 'idle'} editorial />
           </View>
@@ -829,10 +1171,12 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
       </View>
 
       <View style={styles.dayStripHeader}>
-        <Text style={styles.dayStripLabel}>PLAN BY DAY</Text>
+        <View style={styles.dayStripTitleCluster}>
+          <Text style={styles.dayStripLabel}>{itineraryDateDisplay.toUpperCase()}</Text>
+        </View>
         <TouchableOpacity style={styles.inlineAction} onPress={handleAddDayShell} disabled={writesDisabled}>
-          <Ionicons name="add-circle-outline" size={16} color={theme.colors.primary} />
-          <Text style={styles.inlineActionText}>ADD DAY</Text>
+          <Ionicons name="calendar-outline" size={16} color={theme.colors.primary} />
+          <Text style={styles.inlineActionText}>EDIT DATES</Text>
         </TouchableOpacity>
       </View>
 
@@ -911,37 +1255,6 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     </View>
   );
 
-  const renderStoryItem = useCallback(
-    ({ item, drag, isActive, getIndex }: RenderItemParams<ItineraryActivityItem>) => {
-      const index = getIndex();
-      if (index == null) return null;
-      return (
-        <StoryItemCard
-          item={item}
-          index={index}
-          isActive={isActive}
-          drag={drag}
-          writesDisabled={writesDisabled}
-          bookingTrackingEnabled={bookingTrackingEnabled}
-          bookingState={bookingStateByItemId[item.id]}
-          onMoveBack={handleMoveBack}
-          onMoveForward={handleMoveForward}
-          onRemove={handleRemoveItem}
-        />
-      );
-    },
-    [
-      writesDisabled,
-      bookingTrackingEnabled,
-      bookingStateByItemId,
-      handleMoveBack,
-      handleMoveForward,
-      handleRemoveItem,
-    ],
-  );
-
-  const itineraryItemKeyExtractor = useCallback((item: ItineraryActivityItem) => item.id, []);
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <DraggableFlatList
@@ -1005,10 +1318,11 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
       </View>
 
       {/* Date Picker Modal */}
-      <Modal visible={calendarOpen} transparent animationType="slide" onRequestClose={() => setCalendarOpen(false)}>
+      <Modal visible={calendarOpen} transparent animationType="slide" onRequestClose={closeCalendarEditor}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCardLarge}>
             <Text style={styles.modalTitle}>Mission Timeline</Text>
+            <Text style={styles.calendarHint}>Tap once for start date, tap again for end date.</Text>
             <Calendar
               theme={{
                 calendarBackground: '#FFF',
@@ -1026,21 +1340,17 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
                 textDayHeaderFontFamily: theme.typography.fonts.technicalBold,
               }}
               markingType={'period'}
-              markedDates={{
-                [bundle.header.startDate || '']: { startingDay: true, color: theme.colors.textPrimary, textColor: '#FFF' },
-                [bundle.header.endDate || '']: { endingDay: true, color: theme.colors.textPrimary, textColor: '#FFF' },
-              }}
-              onDayPress={(day) => {
-                if (!bundle.header.startDate || (bundle.header.startDate && bundle.header.endDate)) {
-                  void handleCalendarSelect(day.dateString, day.dateString);
-                } else {
-                  void handleCalendarSelect(bundle.header.startDate, day.dateString);
-                }
-              }}
+              markedDates={calendarDraftMarkedDates}
+              onDayPress={(day) => handleCalendarDraftSelect(day.dateString)}
             />
-            <TouchableOpacity style={styles.modalClose} onPress={() => setCalendarOpen(false)}>
-              <Text style={styles.modalCloseText}>CLOSE</Text>
-            </TouchableOpacity>
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity style={styles.modalClose} onPress={() => { void handleCalendarDraftSetLater(); }}>
+                <Text style={styles.modalCloseText}>Set Later</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.primaryCtaSmall} onPress={() => { void handleApplyCalendarDraft(); }} disabled={writesDisabled}>
+                <Text style={styles.primaryCtaText}>Apply Dates</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1059,7 +1369,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
             </Text>
             <Text style={styles.confirmMessage}>
               {confirmAction?.type === 'delete_itinerary'
-                ? "Travis: 'Redaction is permanent. Are you sure you want to burn this mission data?'"
+                ? "Travis: 'Once this dossier hits the shredder, every day and stop is gone for good. Delete this itinerary?'"
                 : `Travis: 'Removing Chapter ${confirmAction?.dayIndex} will permanently remove its stops from this itinerary. Proceed?'`}
             </Text>
             <View style={styles.confirmActions}>
@@ -1104,16 +1414,38 @@ const styles = StyleSheet.create({
   primaryCta: { marginTop: 32, backgroundColor: theme.colors.textPrimary, borderRadius: 30, paddingHorizontal: 32, paddingVertical: 16 },
   primaryCtaSmall: { backgroundColor: theme.colors.textPrimary, borderRadius: 20, paddingHorizontal: 20, paddingVertical: 10 },
   primaryCtaText: { color: '#fff', fontSize: 14, fontFamily: theme.typography.fonts.black, letterSpacing: 1 },
-  masthead: { marginTop: 20, marginBottom: 32 },
+  masthead: { marginTop: 20, marginBottom: 14 },
   mastheadTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   mastheadTitleWrap: { flex: 1, marginRight: 20 },
+  mastheadLocationViewport: {
+    minHeight: 44,
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
   mastheadLocationDisplay: {
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fonts.black,
     fontSize: 40,
     lineHeight: 44,
     marginTop: -1,
-    minHeight: 88,
+    flexShrink: 0,
+  },
+  mastheadLocationMeasureViewport: {
+    position: 'absolute',
+    top: -10000,
+    left: -10000,
+    width: 1,
+    height: 1,
+    opacity: 0,
+  },
+  mastheadLocationMeasureContent: {
+    alignItems: 'flex-start',
+  },
+  mastheadLocationMeasure: {
+    fontFamily: theme.typography.fonts.black,
+    fontSize: 40,
+    lineHeight: 44,
+    textTransform: 'uppercase',
   },
   mastheadTripTitleInput: {
     color: theme.colors.textSecondary,
@@ -1121,24 +1453,30 @@ const styles = StyleSheet.create({
     padding: 0,
     marginTop: 6,
     textTransform: 'uppercase',
+    flexShrink: 1,
   },
-  titleCounter: {
+  dayStripTitleCluster: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    flexShrink: 1,
+  },
+  dayStripDateText: {
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fonts.technicalBold,
     fontSize: 9,
     letterSpacing: 1.2,
-    marginTop: 3,
   },
   mastheadRight: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   settingsButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.surfaceElevated, alignItems: 'center', justifyContent: 'center' },
-  dayStripHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  dayStripHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
   dayStripLabel: { color: theme.colors.textPrimary, fontSize: 12, fontFamily: theme.typography.fonts.black, letterSpacing: 1 },
-  dayStrip: { gap: 12, paddingBottom: 20, paddingRight: 6 },
+  dayStrip: { gap: 12, paddingBottom: 12, paddingRight: 6 },
   dayPill: { paddingHorizontal: 4, paddingVertical: 8, marginRight: 16, borderBottomWidth: 2, borderColor: 'transparent' },
   dayPillActive: { borderColor: theme.colors.primary },
   dayPillText: { color: theme.colors.textSecondary, fontFamily: theme.typography.fonts.technicalBold, fontSize: 10, letterSpacing: 1.5 },
   dayPillTextActive: { color: theme.colors.textPrimary },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, marginTop: 12 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, marginTop: 4 },
   sectionTitle: { color: theme.colors.textPrimary, fontFamily: theme.typography.fonts.black, fontSize: 18 },
   sectionActions: { flexDirection: 'row', gap: 8 },
   inlineAction: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, backgroundColor: theme.colors.surfaceElevated },
