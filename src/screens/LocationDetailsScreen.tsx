@@ -613,7 +613,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
           {addedFeedback && (
             <View pointerEvents="none" style={styles.heroAddedBadge}>
               <Text numberOfLines={1} style={styles.heroAddedBadgeText}>
-                {`Added · ${addedFeedback.itineraryLabel}`}
+                {`Added to ${addedFeedback.itineraryLabel}`}
               </Text>
             </View>
           )}

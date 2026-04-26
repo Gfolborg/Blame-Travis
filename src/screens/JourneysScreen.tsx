@@ -128,7 +128,7 @@ const StoryItemCard = React.memo(
     onMove,
     onRemove,
   }: StoryItemCardProps) => {
-    const rotation = index % 2 === 0 ? '-1.5deg' : '1.5deg';
+    const rotation = index % 2 === 0 ? '-1deg' : '1deg';
     const alignmentStyle = index % 2 === 0 ? { paddingRight: 40 } : { paddingLeft: 40 };
     const bookingToneStyle =
       bookingState?.statusTone === 'success'
@@ -144,7 +144,7 @@ const StoryItemCard = React.memo(
         style={[
           styles.scrapbookItem,
           alignmentStyle,
-          { transform: [{ rotate: isActive ? '0deg' : rotation }, { scale: isActive ? 1.02 : 1 }] },
+          { transform: [{ rotate: isActive ? '0deg' : rotation }, { scale: isActive ? 1.005 : 1 }] },
         ]}
       >
         <TouchableOpacity
@@ -1437,9 +1437,9 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.modalBackdropCentered}>
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setMoveAction(null)} disabled={writesDisabled} />
           <View style={styles.moveCard}>
-            <Text style={styles.modalTitle}>MOVE STOP</Text>
+            <Text style={styles.modalTitle}>MOVE ACTIVITY</Text>
             <Text style={styles.confirmMessage}>
-              {`Travis: 'Choose which day should host "${moveAction?.itemTitle || 'this stop'}".'`}
+              {`Travis: 'Pick a day for "${moveAction?.itemTitle || 'this stop'}" and I'll move it there.'`}
             </Text>
             <View style={styles.moveDayList}>
               {dayIndexes.map(dayIndex => {
@@ -1464,7 +1464,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
                     >
                       {formatDayOption(dayIndex)}
                     </Text>
-                    {isCurrent && <Text style={styles.moveDayCurrentTag}>CURRENT</Text>}
+                    {isCurrent && <Text style={styles.moveDayCurrentTag}>CURRENT DAY</Text>}
                   </TouchableOpacity>
                 );
               })}
@@ -1597,10 +1597,10 @@ const styles = StyleSheet.create({
   },
   storyCardActive: {
     borderColor: 'rgba(0,0,0,0.1)',
-    shadowOpacity: 0.22,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 12,
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
     renderToHardwareTextureAndroid: true,
   },
   storyCardImageBox: { aspectRatio: 1, borderRadius: 4, overflow: 'hidden', backgroundColor: '#F0F0F0', marginBottom: 16 },

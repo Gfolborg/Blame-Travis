@@ -1242,7 +1242,7 @@ const ExploreScreen = () => {
           {hasBeenAdded && (
             <View pointerEvents="none" style={styles.storyAddedBadge}>
               <Text numberOfLines={1} style={styles.storyAddedBadgeText}>
-                {`Added · ${addedFeedback?.itineraryLabel}`}
+                {`Added to ${addedFeedback?.itineraryLabel}`}
               </Text>
             </View>
           )}
