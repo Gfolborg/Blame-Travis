@@ -251,6 +251,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
   const marqueeOffset = useRef(new Animated.Value(0)).current;
   const marqueeRunning = useRef(false);
   const marqueeLoopAnimation = useRef<Animated.CompositeAnimation | null>(null);
+  const hasFocusedLoadRun = useRef(false);
 
   // Inline Draft State
   const [draftTitle, setDraftTitle] = useState('');
@@ -294,16 +295,13 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     []
   );
 
-  useEffect(() => {
-    if (!itineraryBuilderEnabled) return;
-    loadBuilderState();
-  }, [itineraryBuilderEnabled, loadBuilderState]);
-
   useFocusEffect(
     useCallback(() => {
       if (!itineraryBuilderEnabled) return;
-      void loadBuilderState();
-    }, [itineraryBuilderEnabled, loadBuilderState]),
+      const refreshOnly = hasFocusedLoadRun.current;
+      hasFocusedLoadRun.current = true;
+      void loadBuilderState(activeItineraryId, refreshOnly);
+    }, [activeItineraryId, itineraryBuilderEnabled, loadBuilderState]),
   );
 
   const dayIndexes = useMemo(() => {
