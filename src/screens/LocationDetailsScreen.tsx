@@ -46,7 +46,7 @@ import { TravisSignal } from '../components/TravisSignal';
 import { useNotice } from '../components/TravisNotice';
 import { exploreService } from '../services/explore';
 import { isItineraryLimitError, itineraryService } from '../services/itinerary';
-import { ItineraryListItem } from '../types/itinerary';
+import { ItineraryBundle, ItineraryListItem } from '../types/itinerary';
 import { getDayIndexesFromDateRange } from '../utils/itineraryDays';
 
 const { width, height } = Dimensions.get('window');
@@ -160,15 +160,66 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
     return itineraryDays.length ? itineraryDays : [1];
   }, [itineraryDays]);
 
-  const loadItineraryContext = useCallback(async (selectedId?: string | null) => {
+  const findAddedFeedbackInBundle = useCallback(
+    (
+      bundle: ItineraryBundle | null,
+      activity: Pick<ExploreActivity, 'id' | 'canonicalKey'>,
+    ): { itineraryId: string; itineraryLabel: string } | null => {
+      if (!bundle) return null;
+      const activityIdentityKeys = getActivityIdentityKeys(activity);
+      const hasMatch = bundle.days.some(day =>
+        day.items.some(item => {
+          const normalizedItemActivityId = normalizeIdentity(item.activityId);
+          return (
+            activityIdentityKeys.has(normalizedItemActivityId) ||
+            activityIdentityKeys.has(item.activityId)
+          );
+        }),
+      );
+      if (!hasMatch) return null;
+      return {
+        itineraryId: bundle.header.id,
+        itineraryLabel: bundle.header.destinationCity || bundle.header.title || 'Itinerary',
+      };
+    },
+    [],
+  );
+
+  const loadItineraryContext = useCallback(async (
+    selectedId?: string | null,
+    activityForFeedback?: Pick<ExploreActivity, 'id' | 'canonicalKey'> | null,
+  ) => {
     try {
       const builder = await itineraryService.loadBuilderData(selectedId);
-      const validItineraryIds = new Set(builder.itineraries.map(itinerary => itinerary.id));
-      setAddedFeedback(previous =>
-        previous && !validItineraryIds.has(previous.itineraryId)
-          ? null
-          : previous
-      );
+      const selectableItineraries = builder.itineraries.filter(itinerary => itinerary.status !== 'archived');
+      const validItineraryIds = new Set(selectableItineraries.map(itinerary => itinerary.id));
+      const targetActivity = activityForFeedback || null;
+
+      if (!targetActivity) {
+        setAddedFeedback(previous =>
+          previous && !validItineraryIds.has(previous.itineraryId)
+            ? null
+            : previous,
+        );
+      } else {
+        let resolvedFeedback = findAddedFeedbackInBundle(builder.bundle, targetActivity);
+        if (!resolvedFeedback) {
+          for (const itinerary of selectableItineraries) {
+            if (itinerary.id === builder.bundle?.header.id) continue;
+            try {
+              const scopedBuilder = await itineraryService.loadBuilderData(itinerary.id);
+              resolvedFeedback = findAddedFeedbackInBundle(scopedBuilder.bundle, targetActivity);
+              if (resolvedFeedback) {
+                break;
+              }
+            } catch {
+              continue;
+            }
+          }
+        }
+        setAddedFeedback(resolvedFeedback);
+      }
+
       if (builder.bundle) {
         setItineraryDays(
           getDayIndexesFromDateRange(builder.bundle.header.startDate, builder.bundle.header.endDate),
@@ -178,8 +229,11 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
       }
     } catch {
       setItineraryDays([1]);
+      if (activityForFeedback) {
+        setAddedFeedback(null);
+      }
     }
-  }, []);
+  }, [findAddedFeedbackInBundle]);
 
   const showItineraryLimitWarning = useCallback(() => {
     showNotice({
@@ -206,7 +260,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
       await itineraryService.setPreferredAddTargetItineraryId(itineraryId);
       setAddTargetItineraryId(itineraryId);
       setAddTargetItineraryLabel(itineraryLabel || null);
-      await loadItineraryContext(itineraryId);
+      await loadItineraryContext(itineraryId, details);
       setItinerarySelectionPrompt(null);
       setDayPickerOpen(true);
       exploreService.trackEvent({
@@ -232,7 +286,6 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
         return;
       }
       setDetails(data);
-      setAddedFeedback(null);
       setAddTargetItineraryLabel(null);
       
       // GALLERY TEST MODE: Injecting extra images for verification
@@ -246,6 +299,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
       const [explanation, bookingSummary] = await Promise.all([
         activitiesService.getTravisExplanation(data),
         bookingService.getBookingStateByActivity(resolvedActivityId),
+        loadItineraryContext(undefined, data),
       ]);
       setTravisExplanation(explanation);
       setBookingLabel(bookingSummary.statusLabel);
@@ -261,7 +315,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
     } finally {
       setLoading(false);
     }
-  }, [locationId]);
+  }, [loadItineraryContext, locationId]);
 
   const checkProximity = useCallback(async () => {
     if (!details || details.lat == null || details.lng == null) return;
@@ -279,12 +333,12 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
   useEffect(() => { fetchAll(); }, [fetchAll]);
   useEffect(() => { if (details) checkProximity(); }, [details, checkProximity]);
   useEffect(() => {
-    void loadItineraryContext();
-  }, [loadItineraryContext]);
+    void loadItineraryContext(undefined, details);
+  }, [details, loadItineraryContext]);
   useFocusEffect(
     useCallback(() => {
-      void loadItineraryContext();
-    }, [loadItineraryContext]),
+      void loadItineraryContext(undefined, details);
+    }, [details, loadItineraryContext]),
   );
 
   useEffect(() => {

@@ -108,10 +108,10 @@ type StoryItemCardProps = {
   isActive: boolean;
   drag: () => void;
   writesDisabled: boolean;
+  canMoveBetweenDays: boolean;
   bookingTrackingEnabled: boolean;
   bookingState?: BookingStateSummary;
-  onMoveBack: (_item: ItineraryActivityItem) => void;
-  onMoveForward: (_item: ItineraryActivityItem) => void;
+  onMove: (_item: ItineraryActivityItem) => void;
   onRemove: (_item: ItineraryActivityItem) => void;
 };
 
@@ -122,10 +122,10 @@ const StoryItemCard = React.memo(
     isActive,
     drag,
     writesDisabled,
+    canMoveBetweenDays,
     bookingTrackingEnabled,
     bookingState,
-    onMoveBack,
-    onMoveForward,
+    onMove,
     onRemove,
   }: StoryItemCardProps) => {
     const rotation = index % 2 === 0 ? '-1.5deg' : '1.5deg';
@@ -144,7 +144,7 @@ const StoryItemCard = React.memo(
         style={[
           styles.scrapbookItem,
           alignmentStyle,
-          { transform: [{ rotate: isActive ? '0deg' : rotation }, { scale: isActive ? 1.05 : 1 }] },
+          { transform: [{ rotate: isActive ? '0deg' : rotation }, { scale: isActive ? 1.02 : 1 }] },
         ]}
       >
         <TouchableOpacity
@@ -173,18 +173,12 @@ const StoryItemCard = React.memo(
               <Text style={styles.storyCardMeta}>{(item.category || 'SPOT').toUpperCase()} | {item.city?.toUpperCase() || 'UNKNOWN'}</Text>
               <View style={styles.stopActions}>
                 <TouchableOpacity
-                  onPress={() => onMoveBack(item)}
-                  style={styles.storyActionButton}
-                  disabled={writesDisabled || item.dayIndex <= 1}
+                  onPress={() => onMove(item)}
+                  style={[styles.storyActionButton, styles.storyActionMoveButton]}
+                  disabled={writesDisabled || !canMoveBetweenDays}
                 >
-                  <Ionicons name="chevron-back" size={14} color={theme.colors.textPrimary} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => onMoveForward(item)}
-                  style={styles.storyActionButton}
-                  disabled={writesDisabled}
-                >
-                  <Ionicons name="chevron-forward" size={14} color={theme.colors.textPrimary} />
+                  <Ionicons name="swap-horizontal" size={13} color={theme.colors.textPrimary} />
+                  <Text style={styles.storyActionMoveText}>MOVE</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => onRemove(item)}
@@ -205,6 +199,7 @@ const StoryItemCard = React.memo(
     prev.index === next.index &&
     prev.isActive === next.isActive &&
     prev.writesDisabled === next.writesDisabled &&
+    prev.canMoveBetweenDays === next.canMoveBetweenDays &&
     prev.bookingTrackingEnabled === next.bookingTrackingEnabled &&
     prev.bookingState?.statusLabel === next.bookingState?.statusLabel &&
     prev.bookingState?.statusTone === next.bookingState?.statusTone,
@@ -246,6 +241,12 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
   } | {
     type: 'remove_day';
     dayIndex: number;
+  } | null>(null);
+  const [moveAction, setMoveAction] = useState<{
+    itemId: string;
+    itemTitle: string;
+    currentDayIndex: number;
+    targetDayIndex: number | null;
   } | null>(null);
   const marqueeOffset = useRef(new Animated.Value(0)).current;
   const marqueeRunning = useRef(false);
@@ -840,53 +841,78 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     [activeItineraryId, selectedDayIndex, showNotice, writesDisabled]
   );
 
-  const handleMoveItemToAdjacentDay = useCallback(
-    async (item: ItineraryActivityItem, direction: -1 | 1) => {
-      if (!activeItineraryId || writesDisabled) return;
-      const nextDayIndex = Math.max(1, item.dayIndex + direction);
+  const handleOpenMoveItem = useCallback(
+    (item: ItineraryActivityItem) => {
+      if (writesDisabled || dayIndexes.length <= 1) return;
 
-      if (!dayIndexes.includes(nextDayIndex)) {
-        showNotice({
-          title: 'OUT OF RANGE',
-          message: 'Update trip dates to move stops into that day.',
-          type: 'warning',
-        });
-        return;
-      }
-
-      try {
-        setMutating(true);
-        const nextBundle = await itineraryService.moveItemToDay({
-          itineraryId: activeItineraryId,
-          itemId: item.id,
-          targetDayIndex: nextDayIndex,
-        });
-        setBundle(nextBundle);
-      } catch {
-        showNotice({
-          title: 'MOVE FAILED',
-          message: 'Could not move item.',
-          type: 'error',
-        });
-      } finally {
-        setMutating(false);
-      }
+      const defaultTarget = dayIndexes.find(dayIndex => dayIndex !== item.dayIndex) ?? null;
+      setMoveAction({
+        itemId: item.id,
+        itemTitle: item.title,
+        currentDayIndex: item.dayIndex,
+        targetDayIndex: defaultTarget,
+      });
     },
-    [activeItineraryId, dayIndexes, showNotice, writesDisabled]
+    [dayIndexes, writesDisabled],
   );
 
-  const handleMoveBack = useCallback(
-    (item: ItineraryActivityItem) => {
-      void handleMoveItemToAdjacentDay(item, -1);
-    },
-    [handleMoveItemToAdjacentDay],
-  );
+  const handleSelectMoveDay = useCallback((dayIndex: number) => {
+    setMoveAction(current => {
+      if (!current) return current;
+      return {
+        ...current,
+        targetDayIndex: dayIndex,
+      };
+    });
+  }, []);
 
-  const handleMoveForward = useCallback(
-    (item: ItineraryActivityItem) => {
-      void handleMoveItemToAdjacentDay(item, 1);
+  const handleConfirmMove = useCallback(async () => {
+    if (!activeItineraryId || !moveAction || writesDisabled) return;
+
+    const { itemId, targetDayIndex, currentDayIndex } = moveAction;
+    if (!targetDayIndex || targetDayIndex === currentDayIndex) return;
+    if (!dayIndexes.includes(targetDayIndex)) {
+      setMoveAction(null);
+      showNotice({
+        title: 'DAY UNAVAILABLE',
+        message: 'That day no longer exists in this itinerary.',
+        type: 'warning',
+      });
+      return;
+    }
+
+    try {
+      setMutating(true);
+      const nextBundle = await itineraryService.moveItemToDay({
+        itineraryId: activeItineraryId,
+        itemId,
+        targetDayIndex,
+      });
+      setBundle(nextBundle);
+      setSelectedDayIndex(targetDayIndex);
+      setMoveAction(null);
+    } catch {
+      showNotice({
+        title: 'MOVE FAILED',
+        message: 'Could not move stop to that day.',
+        type: 'error',
+      });
+    } finally {
+      setMutating(false);
+    }
+  }, [activeItineraryId, dayIndexes, moveAction, showNotice, writesDisabled]);
+
+  const formatDayOption = useCallback(
+    (dayIndex: number) => {
+      const startDate = bundle?.header.startDate;
+      if (!startDate) return `Day ${dayIndex}`;
+      const parsedStart = new Date(`${startDate}T00:00:00`);
+      if (Number.isNaN(parsedStart.getTime())) return `Day ${dayIndex}`;
+      parsedStart.setDate(parsedStart.getDate() + (dayIndex - 1));
+      const dateLabel = parsedStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return `Day ${dayIndex} - ${dateLabel}`;
     },
-    [handleMoveItemToAdjacentDay],
+    [bundle?.header.startDate],
   );
 
   const handleAddDayShell = useCallback(() => {
@@ -953,20 +979,20 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
           isActive={isActive}
           drag={drag}
           writesDisabled={writesDisabled}
+          canMoveBetweenDays={dayIndexes.length > 1}
           bookingTrackingEnabled={bookingTrackingEnabled}
           bookingState={bookingStateByItemId[item.id]}
-          onMoveBack={handleMoveBack}
-          onMoveForward={handleMoveForward}
+          onMove={handleOpenMoveItem}
           onRemove={handleRemoveItem}
         />
       );
     },
     [
       writesDisabled,
+      dayIndexes.length,
       bookingTrackingEnabled,
       bookingStateByItemId,
-      handleMoveBack,
-      handleMoveForward,
+      handleOpenMoveItem,
       handleRemoveItem,
     ],
   );
@@ -1365,11 +1391,11 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setConfirmAction(null)} disabled={writesDisabled} />
           <View style={styles.confirmCard}>
             <Text style={styles.modalTitle}>
-              {confirmAction?.type === 'delete_itinerary' ? 'BURN DOSSIER' : 'REDACT CHAPTER'}
+              {confirmAction?.type === 'delete_itinerary' ? 'DELETE ITINERARY' : 'REDACT CHAPTER'}
             </Text>
             <Text style={styles.confirmMessage}>
               {confirmAction?.type === 'delete_itinerary'
-                ? "Travis: 'Once this dossier hits the shredder, every day and stop is gone for good. Delete this itinerary?'"
+                ? "Travis: 'Heads up: deleting this itinerary removes every day and stop. Want to clear it out?'"
                 : `Travis: 'Removing Chapter ${confirmAction?.dayIndex} will permanently remove its stops from this itinerary. Proceed?'`}
             </Text>
             <View style={styles.confirmActions}>
@@ -1379,7 +1405,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
                 disabled={writesDisabled}
               >
                 <Text style={styles.confirmCancelText}>
-                  {confirmAction?.type === 'delete_itinerary' ? 'ABORT' : 'STAY'}
+                  {confirmAction?.type === 'delete_itinerary' ? 'CANCEL' : 'STAY'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -1393,8 +1419,77 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
                   {writesDisabled
                     ? 'WORKING...'
                     : confirmAction?.type === 'delete_itinerary'
-                      ? 'BURN IT'
+                      ? 'DELETE'
                       : 'REDACT'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(moveAction)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMoveAction(null)}
+      >
+        <View style={styles.modalBackdropCentered}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setMoveAction(null)} disabled={writesDisabled} />
+          <View style={styles.moveCard}>
+            <Text style={styles.modalTitle}>MOVE STOP</Text>
+            <Text style={styles.confirmMessage}>
+              {`Travis: 'Choose which day should host "${moveAction?.itemTitle || 'this stop'}".'`}
+            </Text>
+            <View style={styles.moveDayList}>
+              {dayIndexes.map(dayIndex => {
+                const isCurrent = moveAction?.currentDayIndex === dayIndex;
+                const isSelected = moveAction?.targetDayIndex === dayIndex;
+                return (
+                  <TouchableOpacity
+                    key={dayIndex}
+                    style={[
+                      styles.moveDayPill,
+                      isSelected && styles.moveDayPillSelected,
+                      isCurrent && styles.moveDayPillCurrent,
+                    ]}
+                    onPress={() => handleSelectMoveDay(dayIndex)}
+                    disabled={isCurrent || writesDisabled}
+                  >
+                    <Text
+                      style={[
+                        styles.moveDayPillText,
+                        isSelected && styles.moveDayPillTextSelected,
+                      ]}
+                    >
+                      {formatDayOption(dayIndex)}
+                    </Text>
+                    {isCurrent && <Text style={styles.moveDayCurrentTag}>CURRENT</Text>}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={styles.confirmCancel}
+                onPress={() => setMoveAction(null)}
+                disabled={writesDisabled}
+              >
+                <Text style={styles.confirmCancelText}>CANCEL</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmDanger}
+                onPress={() => {
+                  void handleConfirmMove();
+                }}
+                disabled={
+                  writesDisabled ||
+                  !moveAction?.targetDayIndex ||
+                  moveAction.targetDayIndex === moveAction.currentDayIndex
+                }
+              >
+                <Text style={styles.confirmDangerText}>
+                  {writesDisabled ? 'WORKING...' : 'MOVE'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1486,8 +1581,28 @@ const styles = StyleSheet.create({
   emptyChapterText: { fontFamily: theme.typography.fonts.narrative, fontSize: 18, color: theme.colors.textPrimary, fontStyle: 'italic', textAlign: 'center', lineHeight: 28, paddingHorizontal: 40 },
   scrapbookList: { paddingBottom: 160, paddingTop: 10 },
   scrapbookItem: { marginBottom: 32 },
-  storyCard: { backgroundColor: '#FFF', borderRadius: 8, padding: 12, paddingBottom: 20, ...theme.shadows.float, borderWidth: 1, borderColor: 'rgba(0,0,0,0.03)' },
-  storyCardActive: { shadowOpacity: 0.25, shadowRadius: 20, elevation: 20 },
+  storyCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 8,
+    padding: 12,
+    paddingBottom: 20,
+    ...theme.shadows.float,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 9,
+  },
+  storyCardActive: {
+    borderColor: 'rgba(0,0,0,0.1)',
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
+    renderToHardwareTextureAndroid: true,
+  },
   storyCardImageBox: { aspectRatio: 1, borderRadius: 4, overflow: 'hidden', backgroundColor: '#F0F0F0', marginBottom: 16 },
   storyCardImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   storyCardBody: { paddingHorizontal: 4 },
@@ -1497,6 +1612,8 @@ const styles = StyleSheet.create({
   storyCardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
   storyCardMeta: { fontFamily: theme.typography.fonts.technicalBold, fontSize: 9, color: theme.colors.textSecondary, letterSpacing: 1 },
   storyActionButton: { width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceElevated, alignItems: 'center', justifyContent: 'center' },
+  storyActionMoveButton: { width: 'auto', minWidth: 64, paddingHorizontal: 10, flexDirection: 'row', gap: 4, borderRadius: 14 },
+  storyActionMoveText: { color: theme.colors.textPrimary, fontFamily: theme.typography.fonts.technicalBold, fontSize: 8, letterSpacing: 0.8 },
   mapModeContainer: { paddingBottom: 160 },
   mapDossier: { marginTop: 10 },
   mapContainer: { height: 300, borderRadius: 24, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' },
@@ -1540,8 +1657,16 @@ const styles = StyleSheet.create({
   modalCard: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, ...theme.shadows.float },
   modalCardLarge: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, minHeight: 520, ...theme.shadows.float },
   confirmCard: { backgroundColor: theme.colors.surface, borderRadius: 22, padding: 20, ...theme.shadows.float },
+  moveCard: { backgroundColor: theme.colors.surface, borderRadius: 22, padding: 20, ...theme.shadows.float },
   modalTitle: { fontFamily: theme.typography.fonts.black, color: theme.colors.textPrimary, fontSize: 24, marginBottom: 20, letterSpacing: -0.5 },
   confirmMessage: { marginTop: -6, marginBottom: 20, color: theme.colors.textSecondary, fontFamily: theme.typography.fonts.narrative, fontSize: 14, lineHeight: 20 },
+  moveDayList: { gap: 8, marginBottom: 20 },
+  moveDayPill: { borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: theme.colors.surfaceElevated },
+  moveDayPillSelected: { borderColor: theme.colors.primary, backgroundColor: 'rgba(231, 57, 70, 0.08)' },
+  moveDayPillCurrent: { opacity: 0.6 },
+  moveDayPillText: { color: theme.colors.textPrimary, fontFamily: theme.typography.fonts.technicalBold, fontSize: 10, letterSpacing: 0.8 },
+  moveDayPillTextSelected: { color: theme.colors.primary },
+  moveDayCurrentTag: { marginTop: 4, color: theme.colors.textSecondary, fontFamily: theme.typography.fonts.technicalBold, fontSize: 8, letterSpacing: 1 },
   confirmActions: { flexDirection: 'row', gap: 10 },
   confirmCancel: { flex: 1, height: 44, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceElevated },
   confirmCancelText: { color: theme.colors.textPrimary, fontFamily: theme.typography.fonts.technicalBold, fontSize: 11, letterSpacing: 0.8 },

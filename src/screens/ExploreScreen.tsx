@@ -45,7 +45,7 @@ import {
 import { exploreService } from '../services/explore';
 import { discoveryService } from '../services/discovery';
 import { isItineraryLimitError, itineraryService } from '../services/itinerary';
-import { ItineraryListItem } from '../types/itinerary';
+import { ItineraryBundle, ItineraryListItem } from '../types/itinerary';
 import { Calendar } from 'react-native-calendars';
 import { clampEndDateToMaxDays, getDayIndexesFromDateRange, MAX_ITINERARY_DAYS } from '../utils/itineraryDays';
 
@@ -139,6 +139,31 @@ const getActivityIdentityKeys = (activity: Pick<ExploreActivity, 'id' | 'canonic
   return keys;
 };
 
+const hasActivityIdentityInBundle = (bundle: ItineraryBundle | null, activityIdentity: string) => {
+  if (!bundle) return false;
+  return bundle.days.some(day =>
+    day.items.some(item => normalizeIdentity(item.activityId) === activityIdentity),
+  );
+};
+
+const areAddedFeedbackMapsEqual = (
+  left: Record<string, { itineraryId: string; itineraryLabel: string }>,
+  right: Record<string, { itineraryId: string; itineraryLabel: string }>,
+) => {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every(key => {
+    const leftItem = left[key];
+    const rightItem = right[key];
+    return Boolean(
+      rightItem &&
+      leftItem.itineraryId === rightItem.itineraryId &&
+      leftItem.itineraryLabel === rightItem.itineraryLabel,
+    );
+  });
+};
+
 const FALLBACK_RAIL_IMAGE = require('../../assets/icon.png');
 
 const ExploreScreen = () => {
@@ -198,6 +223,11 @@ const ExploreScreen = () => {
     destination: null,
     query: '',
   });
+  const addedFeedbackByActivityIdentityRef = useRef(addedFeedbackByActivityIdentity);
+
+  useEffect(() => {
+    addedFeedbackByActivityIdentityRef.current = addedFeedbackByActivityIdentity;
+  }, [addedFeedbackByActivityIdentity]);
 
   const closeInlineAddPanel = useCallback(() => {
     setDuplicatePrompt(null);
@@ -216,15 +246,48 @@ const ExploreScreen = () => {
       setActiveItineraryId(builder.activeItineraryId);
       setAvailableItineraryIds(builder.itineraries.map(itinerary => itinerary.id));
       const validItineraryIds = new Set(builder.itineraries.map(itinerary => itinerary.id));
-      setAddedFeedbackByActivityIdentity(previous => {
-        const next: Record<string, { itineraryId: string; itineraryLabel: string }> = {};
-        Object.entries(previous).forEach(([activityIdentity, feedback]) => {
-          if (validItineraryIds.has(feedback.itineraryId)) {
-            next[activityIdentity] = feedback;
+      const previousFeedback = addedFeedbackByActivityIdentityRef.current;
+      const nextFeedback: Record<string, { itineraryId: string; itineraryLabel: string }> = {};
+      const feedbackEntries = Object.entries(previousFeedback).filter(([, feedback]) =>
+        validItineraryIds.has(feedback.itineraryId),
+      );
+
+      if (feedbackEntries.length > 0) {
+        const bundleByItineraryId: Record<string, ItineraryBundle | null> = {};
+        if (builder.bundle) {
+          bundleByItineraryId[builder.bundle.header.id] = builder.bundle;
+        }
+
+        const itineraryIdsToResolve = [...new Set(feedbackEntries.map(([, feedback]) => feedback.itineraryId))]
+          .filter(itineraryId => !(itineraryId in bundleByItineraryId));
+
+        if (itineraryIdsToResolve.length > 0) {
+          const scopedBundles = await Promise.all(
+            itineraryIdsToResolve.map(async itineraryId => {
+              try {
+                const scopedBuilder = await itineraryService.loadBuilderData(itineraryId);
+                return [itineraryId, scopedBuilder.bundle] as const;
+              } catch {
+                return [itineraryId, null] as const;
+              }
+            }),
+          );
+          scopedBundles.forEach(([itineraryId, itineraryBundle]) => {
+            bundleByItineraryId[itineraryId] = itineraryBundle;
+          });
+        }
+
+        feedbackEntries.forEach(([activityIdentity, feedback]) => {
+          const itineraryBundle = bundleByItineraryId[feedback.itineraryId] || null;
+          if (hasActivityIdentityInBundle(itineraryBundle, activityIdentity)) {
+            nextFeedback[activityIdentity] = feedback;
           }
         });
-        return Object.keys(next).length === Object.keys(previous).length ? previous : next;
-      });
+      }
+
+      if (!areAddedFeedbackMapsEqual(previousFeedback, nextFeedback)) {
+        setAddedFeedbackByActivityIdentity(nextFeedback);
+      }
       if (builder.bundle) {
         setItineraryDays(
           getDayIndexesFromDateRange(builder.bundle.header.startDate, builder.bundle.header.endDate),
@@ -380,14 +443,6 @@ const ExploreScreen = () => {
       const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
       return () => sub.remove();
     }, [loadItineraryContext, duplicatePrompt, calendarOpen, itinerarySelectionPrompt, addActionMenuActivity, addActionStep, addTargetItineraryId, closeInlineAddPanel, filterOpen, citySuggestions.length, showVibeSearchHint, hasSearched, resetToExploreLanding])
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        setAddedFeedbackByActivityIdentity({});
-      };
-    }, [])
   );
 
   useEffect(() => {

@@ -16,7 +16,7 @@ export default {
     userInterfaceStyle: "dark",
     newArchEnabled: true,
     splash: {
-      image: "./assets/splash-icon.png",
+      image: "./assets/brand/Blame_Travis_Logo-removebg-preview.png",
       resizeMode: "contain",
       backgroundColor: "#121212"
     },
