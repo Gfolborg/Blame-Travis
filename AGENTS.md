@@ -95,6 +95,9 @@ Mandatory UX behavior:
 - map/list views remain state-synchronized
 - map mode must degrade safely when itinerary stops have missing coordinates
 - no dead-end no-result pages
+- bottom tab navigation must keep active labels legible without truncation artifacts
+- active bottom-tab state should preserve icon-first scanning with optional label support beneath icon
+- tab returns to Journeys must avoid full-screen loading flicker; use refresh-in-place behavior after first load
 
 Mandatory accessibility rules:
 - text contrast at WCAG AA minimum

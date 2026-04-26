@@ -32,6 +32,7 @@ description: Motion and haptic standards for clear hierarchy, feedback, and perf
 - No animation runs on JS thread when avoidable
 - Reduced-motion mode remains fully usable
 - Frame drops during core flows remain within acceptable bounds
+- Active navigation labels remain readable during animated state changes (no truncation artifacts)
 
 ## Non-Negotiables
 - Decorative motion cannot override functional clarity.

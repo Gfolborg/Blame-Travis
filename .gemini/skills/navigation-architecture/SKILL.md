@@ -31,7 +31,9 @@ description: Navigation architecture standards for state continuity, deep-link c
 - No dead-end route without return path
 - Deep links resolve to correct screen and state
 - Context (query/filter/selection) survives expected transitions
+- Tab-to-tab returns do not flash blocking full-screen loading when refresh-in-place is sufficient
 
 ## Non-Negotiables
 - Navigation state leaks across unrelated domains are not allowed.
 - Notification deep links cannot land in ambiguous screens.
+- Primary bottom-tab navigation must preserve legible active-state labeling and predictable focus behavior.

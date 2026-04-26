@@ -1180,8 +1180,6 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
               autoCapitalize="words"
               multiline={false}
               numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.65}
               maxLength={TITLE_MAX_LENGTH}
             />
           </View>
@@ -1599,7 +1597,6 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
     elevation: 10,
-    renderToHardwareTextureAndroid: true,
   },
   storyCardImageBox: { aspectRatio: 1, borderRadius: 4, overflow: 'hidden', backgroundColor: '#F0F0F0', marginBottom: 16 },
   storyCardImage: { width: '100%', height: '100%', resizeMode: 'cover' },

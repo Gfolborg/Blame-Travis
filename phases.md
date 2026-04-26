@@ -1,6 +1,6 @@
 ﻿# Blame Travis Sprint Roadmap
 
-**Last Updated:** 2026-04-22
+**Last Updated:** 2026-04-26
 **Execution Model:** Vertical slice delivery by user outcome
 **Core Product:** Things-to-do discovery -> itinerary planning -> booking conversion -> retention
 
@@ -374,6 +374,14 @@ Create or verify SQL for booking funnel:
   - `ExploreScreen`: removed legacy city conflict create/delete prompt from city selection flow.
   - `itineraryService.createItinerary`: enforces a soft app/service cap of 5 non-archived itineraries via typed `ITINERARY_LIMIT_REACHED` errors.
   - `JourneysScreen`: create-itinerary flow now surfaces non-blocking soft warning when user attempts to create itinerary #6.
+- 2026-04-26: Refined main tab navigation UX:
+  - Replaced static bottom tabs with a custom floating liquid tab bar (`LiquidExpandingTabBar`) and active-state label support beneath icons.
+  - Added navigation motion/sizing tokens in `src/theme/tokens.ts` for deterministic animation tuning.
+- 2026-04-26: Fixed Journeys tab return flicker:
+  - `JourneysScreen` now performs first-load full initialization once and uses refresh-in-place on later focus returns instead of re-entering blocking loading state.
+- 2026-04-26: Restored baseline TypeScript health:
+  - `ExploreScreen` callback ordering corrected to eliminate block-scoped use-before-declaration errors.
+  - `JourneysScreen` invalid `TextInput` and style typing usage cleaned up for `npx tsc --noEmit` pass.
 
 ---
 

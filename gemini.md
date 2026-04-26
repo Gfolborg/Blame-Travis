@@ -67,6 +67,9 @@ Required for every touched screen:
 - offline state
 - denied-permission state
 - safe map degradation for missing coordinates when map mode is present
+- bottom-tab active labels remain legible without truncation artifacts
+- active bottom-tab treatment stays icon-first with optional label support beneath icon
+- returning to Journeys via tab switch refreshes in-place after first load (no full-screen flicker)
 
 Interaction requirements:
 - clear primary action

@@ -543,6 +543,104 @@ const ExploreScreen = () => {
     });
   }, [showNotice]);
 
+  const showItineraryLimitWarning = useCallback(() => {
+    showNotice({
+      title: 'LIMIT REACHED',
+      message: "Travis: 'You can keep up to 5 itineraries at a time. Delete one to create another.'",
+      type: 'warning',
+    });
+    exploreService.trackEvent({
+      eventName: 'itinerary_limit_warning_shown',
+      metadata: {
+        source: 'explore_add',
+        max_itineraries: 5,
+      },
+    });
+  }, [showNotice]);
+
+  const selectTargetItinerary = useCallback(
+    async (
+      itineraryId: string,
+      selectionMode: 'auto_created' | 'single' | 'remembered' | 'picker',
+      targetLabel?: string | null,
+    ) => {
+      await itineraryService.setPreferredAddTargetItineraryId(itineraryId);
+      setAddTargetItineraryId(itineraryId);
+      setAddTargetItineraryLabel(targetLabel || null);
+      setItinerarySelectionPrompt(null);
+      setAddActionStep('pick_day');
+      setAllowInlineCreateOnDayPick(false);
+      await loadItineraryContext(itineraryId);
+      if (addActionMenuActivity) {
+        exploreService.trackEvent({
+          eventName: 'itinerary_target_selected',
+          activityId: addActionMenuActivity.id,
+          metadata: {
+            source: 'explore',
+            itinerary_id: itineraryId,
+            selection_mode: selectionMode,
+          },
+        });
+      }
+    },
+    [addActionMenuActivity, loadItineraryContext],
+  );
+
+  const completeAddToDay = useCallback(
+    async (
+      activity: ExploreActivity,
+      dayIndex: number,
+      itineraryId: string,
+      duplicateOverride: boolean,
+      itineraryLabel: string,
+    ) => {
+      setAddingToItinerary(true);
+      try {
+        const nextBundle = await itineraryService.addActivityToDay({
+          itineraryId,
+          activityId: activity.id,
+          dayIndex,
+        });
+        setItineraryDays(
+          getDayIndexesFromDateRange(nextBundle.header.startDate, nextBundle.header.endDate),
+        );
+        const activityIdentity = getActivityIdentity(activity);
+        const resolvedLabel = itineraryLabel.trim() || 'Itinerary';
+        setAddedFeedbackByActivityIdentity(previous => ({
+          ...previous,
+          [activityIdentity]: { itineraryId, itineraryLabel: resolvedLabel },
+        }));
+
+        AccessibilityInfo.announceForAccessibility(`Added ${activity.title} to day ${dayIndex}`);
+        exploreService.trackEvent({
+          eventName: 'itinerary_item_added',
+          activityId: activity.id,
+          metadata: {
+            itinerary_id: itineraryId,
+            day_index: dayIndex,
+            source: 'explore',
+            duplicate_override: duplicateOverride,
+          },
+        });
+      } catch (error: any) {
+        showNotice({
+          title: 'ADD FAILED',
+          message: error?.message || 'Could not add this stop to your itinerary right now.',
+          type: 'error',
+        });
+      } finally {
+        setAddingToItinerary(false);
+        setDuplicatePrompt(null);
+        setItinerarySelectionPrompt(null);
+        setAddActionMenuActivity(null);
+        setAddActionStep('pick_day');
+        setAddTargetItineraryId(null);
+        setAddTargetItineraryLabel(null);
+      }
+    },
+    [showNotice],
+  );
+
   const handleCalendarDayPress = useCallback(
     (dateString: string) => {
       if (!calendarStartDate || (calendarStartDate && calendarEndDate)) {
@@ -724,49 +822,6 @@ const ExploreScreen = () => {
     }
   }, [closeCalendar, completeAddToDay, pendingInlineCreate, selectTargetItinerary, showItineraryLimitWarning, showNotice]);
 
-  const showItineraryLimitWarning = useCallback(() => {
-    showNotice({
-      title: 'LIMIT REACHED',
-      message: "Travis: 'You can keep up to 5 itineraries at a time. Delete one to create another.'",
-      type: 'warning',
-    });
-    exploreService.trackEvent({
-      eventName: 'itinerary_limit_warning_shown',
-      metadata: {
-        source: 'explore_add',
-        max_itineraries: 5,
-      },
-    });
-  }, [showNotice]);
-
-  const selectTargetItinerary = useCallback(
-    async (
-      itineraryId: string,
-      selectionMode: 'auto_created' | 'single' | 'remembered' | 'picker',
-      targetLabel?: string | null,
-    ) => {
-      await itineraryService.setPreferredAddTargetItineraryId(itineraryId);
-      setAddTargetItineraryId(itineraryId);
-      setAddTargetItineraryLabel(targetLabel || null);
-      setItinerarySelectionPrompt(null);
-      setAddActionStep('pick_day');
-      setAllowInlineCreateOnDayPick(false);
-      await loadItineraryContext(itineraryId);
-      if (addActionMenuActivity) {
-        exploreService.trackEvent({
-          eventName: 'itinerary_target_selected',
-          activityId: addActionMenuActivity.id,
-          metadata: {
-            source: 'explore',
-            itinerary_id: itineraryId,
-            selection_mode: selectionMode,
-          },
-        });
-      }
-    },
-    [addActionMenuActivity, loadItineraryContext],
-  );
-
   const resolveAddTargetForActivity = useCallback(
     async (
       activity: ExploreActivity,
@@ -863,61 +918,6 @@ const ExploreScreen = () => {
     setAddActionStep('pick_day');
     setAllowInlineCreateOnDayPick(true);
   }, []);
-
-  const completeAddToDay = useCallback(
-    async (
-      activity: ExploreActivity,
-      dayIndex: number,
-      itineraryId: string,
-      duplicateOverride: boolean,
-      itineraryLabel: string,
-    ) => {
-      setAddingToItinerary(true);
-      try {
-        const nextBundle = await itineraryService.addActivityToDay({
-          itineraryId,
-          activityId: activity.id,
-          dayIndex,
-        });
-        setItineraryDays(
-          getDayIndexesFromDateRange(nextBundle.header.startDate, nextBundle.header.endDate),
-        );
-        const activityIdentity = getActivityIdentity(activity);
-        const resolvedLabel = itineraryLabel.trim() || 'Itinerary';
-        setAddedFeedbackByActivityIdentity(previous => ({
-          ...previous,
-          [activityIdentity]: { itineraryId, itineraryLabel: resolvedLabel },
-        }));
-
-        AccessibilityInfo.announceForAccessibility(`Added ${activity.title} to day ${dayIndex}`);
-        exploreService.trackEvent({
-          eventName: 'itinerary_item_added',
-          activityId: activity.id,
-          metadata: {
-            itinerary_id: itineraryId,
-            day_index: dayIndex,
-            source: 'explore',
-            duplicate_override: duplicateOverride,
-          },
-        });
-      } catch (error: any) {
-        showNotice({
-          title: 'ADD FAILED',
-          message: error?.message || 'Could not add this stop to your itinerary right now.',
-          type: 'error',
-        });
-      } finally {
-        setAddingToItinerary(false);
-        setDuplicatePrompt(null);
-        setItinerarySelectionPrompt(null);
-        setAddActionMenuActivity(null);
-        setAddActionStep('pick_day');
-        setAddTargetItineraryId(null);
-        setAddTargetItineraryLabel(null);
-      }
-    },
-    [showNotice],
-  );
 
   const handleAddToDayPress = useCallback(
     async (dayIndex: number) => {

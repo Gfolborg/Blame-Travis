@@ -89,10 +89,13 @@ Travis remains the host voice and recommendation narrator.
   - parchment backgrounds
   - ink-black text
   - vintage red accents
+- Use a floating bottom tab dock with smooth motion; active-tab labels must remain fully readable (no truncation artifacts like `Expl...`).
+- Active bottom-tab treatment should prioritize icon-first clarity with label support beneath the icon when expanded.
 - Use visual-first activity cards with clear hero image, price, duration, rating, and save action.
 - Avoid native `Alert.alert` product messaging; use in-app notice components.
 - Prioritize Android-first smoothness and map/list performance.
 - Map views must gracefully handle stops without coordinates (never crash; provide non-map fallback labeling).
+- Returning to Journeys from bottom-tab navigation should refresh without flashing full-screen loading states.
 - When multiple itineraries exist, add flows must prompt for target itinerary, then remember that choice for subsequent adds.
 - Enforce a soft cap of 5 non-archived itineraries; only surface guidance when the user attempts to create a 6th itinerary.
 
