@@ -41,3 +41,9 @@ nanobanana-output/
 # generated native folders
 /ios
 /android
+
+# Supabase local CLI metadata
+supabase/.temp/
+
+# Local screenshot artifacts
+assets/Screenshot*.png
