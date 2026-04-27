@@ -5,6 +5,7 @@ import { decode } from "https://deno.land/std@0.178.0/encoding/base64.ts"
 const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -17,8 +18,65 @@ serve(async (req) => {
   }
 
   try {
+    if (req.method !== 'POST') {
+      return new Response(JSON.stringify({ error: 'METHOD_NOT_ALLOWED' }), {
+        status: 405,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_ANON_KEY) {
+      return new Response(JSON.stringify({ error: 'SERVER_MISCONFIGURED' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const authHeader = req.headers.get('Authorization') || ''
+    if (!authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'UNAUTHORIZED' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const callerSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    })
+    const { data: callerData, error: callerError } = await callerSupabase.auth.getUser()
+    const caller = callerData?.user
+    if (callerError || !caller) {
+      return new Response(JSON.stringify({ error: 'UNAUTHORIZED' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     const { title, location, adventureId, goal, intensity } = await req.json()
+    if (!adventureId || typeof adventureId !== 'string') {
+      return new Response(JSON.stringify({ error: 'INVALID_ADVENTURE_ID' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
     console.log(`[IMAGE] Request received: ${title} in ${location} for ${adventureId}`)
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    const { data: ownedAdventure, error: ownershipError } = await supabase
+      .from('adventures')
+      .select('id')
+      .eq('id', adventureId)
+      .eq('user_id', caller.id)
+      .maybeSingle()
+
+    if (ownershipError) {
+      throw ownershipError
+    }
+    if (!ownedAdventure) {
+      return new Response(JSON.stringify({ error: 'FORBIDDEN' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
     const goalContext = goal ? `. The theme is: ${goal}` : '';
 
@@ -94,7 +152,6 @@ serve(async (req) => {
     }
 
     // 3. Store in Supabase Storage
-    const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!)
     const fileName = `${adventureId}_hero.jpg`
     
     const { error: uploadError } = await supabase.storage

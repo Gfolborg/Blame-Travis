@@ -8,22 +8,10 @@ import { useNotice } from './TravisNotice';
 import { GUEST_ID, notificationsService } from '../services/notifications';
 import { NotificationIntent, NotificationPayload } from '../../shared/notifications';
 
-function routeFromIntent(intent: NotificationIntent, payload: NotificationPayload) {
+function routeFromIntent(intent: NotificationIntent, _payload: NotificationPayload) {
   if (!navigationRef.isReady()) return;
 
   switch (intent.screen) {
-    case 'AdventureReveal':
-      if (payload.adventureId) {
-        navigationRef.navigate('AdventureReveal', {
-          AdventureId: payload.adventureId,
-        });
-      } else {
-        navigationRef.navigate('MainTabs', { screen: 'Home' });
-      }
-      break;
-    case 'AdventureRequest':
-      navigationRef.navigate('AdventureRequest');
-      break;
     case 'MainTabs':
       navigationRef.navigate('MainTabs', intent.params);
       break;

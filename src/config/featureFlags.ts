@@ -4,7 +4,6 @@ export interface FeatureFlags {
   saved_activities_v1_enabled: boolean;
   itinerary_builder_v1_enabled: boolean;
   booking_tracking_v1_enabled: boolean;
-  legacy_adventure_flow_enabled: boolean;
 }
 
 export const featureFlags: FeatureFlags = {
@@ -13,7 +12,6 @@ export const featureFlags: FeatureFlags = {
   saved_activities_v1_enabled: true,
   itinerary_builder_v1_enabled: true,
   booking_tracking_v1_enabled: true,
-  legacy_adventure_flow_enabled: true,
 };
 
 export function isFeatureEnabled(flag: keyof FeatureFlags): boolean {

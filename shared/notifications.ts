@@ -9,9 +9,7 @@ export type NotificationEventType =
   | 'idle_nudge';
 
 export type NotificationIntent =
-  | { screen: 'AdventureReveal'; params: { AdventureId: string } }
-  | { screen: 'AdventureRequest' }
-  | { screen: 'MainTabs'; params: { screen: 'Home' | 'Passport' } };
+  | { screen: 'MainTabs'; params: { screen: 'Home' | 'Journeys' | 'Passport' } };
 
 export interface NotificationContent {
   title: string;
@@ -55,47 +53,42 @@ export function buildNotificationContent(
   type: NotificationEventType,
   context: NotificationContext = {},
 ): NotificationContent {
-  const adventureRevealIntent: NotificationIntent = {
-    screen: 'AdventureReveal',
-    params: { AdventureId: context.adventureId ?? '' },
-  };
-
   switch (type) {
     case 'draft_ready':
       return {
         title: 'TRAVIS: YOUR ITINERARY IS READY',
         body: 'I put together something better than another night on autopilot. Open it and pick your day.',
-        intent: adventureRevealIntent,
+        intent: { screen: 'MainTabs', params: { screen: 'Journeys' } },
       };
     case 'draft_stale':
       return {
         title: 'TRAVIS: THAT ITINERARY IS WAITING',
         body: 'The open road is still sitting on the desk. Pick a day before this becomes another idea you almost did.',
-        intent: adventureRevealIntent,
+        intent: { screen: 'MainTabs', params: { screen: 'Journeys' } },
       };
     case 'adventure_prep':
       return {
         title: 'TRAVIS: TOMORROW HAS A PLAN',
         body: 'Give your itinerary a quick look tonight. Future you will appreciate the head start.',
-        intent: { screen: 'MainTabs', params: { screen: 'Home' } },
+        intent: { screen: 'MainTabs', params: { screen: 'Journeys' } },
       };
     case 'adventure_day_of':
       return {
         title: 'TRAVIS: TODAY LOOKS GOOD',
         body: 'You’ve got an itinerary and a full day in front of you. Go make the passport earn a stamp.',
-        intent: { screen: 'MainTabs', params: { screen: 'Home' } },
+        intent: { screen: 'MainTabs', params: { screen: 'Journeys' } },
       };
     case 'adventure_overdue':
       return {
         title: 'TRAVIS: THE DAY’S NOT GONE YET',
         body: 'If the itinerary is still alive, there’s still time to salvage something story-worthy.',
-        intent: { screen: 'MainTabs', params: { screen: 'Home' } },
+        intent: { screen: 'MainTabs', params: { screen: 'Journeys' } },
       };
     case 'adventure_missed':
       return {
         title: 'TRAVIS: WE LET ONE SLIP',
         body: 'It happens. Shake it off and I’ll help you put something better on the desk next time.',
-        intent: { screen: 'MainTabs', params: { screen: 'Home' } },
+        intent: { screen: 'MainTabs', params: { screen: 'Journeys' } },
       };
     case 'adventure_completed':
       return {
@@ -107,7 +100,7 @@ export function buildNotificationContent(
       return {
         title: 'TRAVIS: READY FOR ANOTHER ONE?',
         body: 'The desk is quiet and your passport could use fresh ink. Let me draft something worth leaving the house for.',
-        intent: { screen: 'AdventureRequest' },
+        intent: { screen: 'MainTabs', params: { screen: 'Home' } },
       };
   }
 }

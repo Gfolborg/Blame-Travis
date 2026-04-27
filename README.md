@@ -61,6 +61,7 @@ The default browse surface should include:
 - **Bookable activity layer**: Viator first, with future optional expansion to GetYourGuide/Amadeus.
 - **Hybrid strategy**: broad discovery plus bookable depth in the same destination flow.
 - **Current security mode**: discovery helper calls (autocomplete/geocode/reverse-geocode) are edge-first; temporary client fallback is allowed for development only. See `docs/release/discovery-fallback-handoff.md`.
+- **Privileged edge-function guardrails**: scheduler/admin functions now require `x-edge-cron-secret` and image-generation writes require an authenticated caller that owns the target adventure.
 
 ### Personalization Stack
 
@@ -97,6 +98,7 @@ Travis remains the host voice and recommendation narrator.
 - Prioritize Android-first smoothness and map/list performance.
 - Map views must gracefully handle stops without coordinates (never crash; provide non-map fallback labeling).
 - Returning to Journeys from bottom-tab navigation should refresh without flashing full-screen loading states.
+- Legacy modal itinerary generation flow (`AdventureRequest` -> `AdventureAssignment` -> `AdventureReveal`) is retired; itinerary creation and review now route through `Journeys` and `Explore`.
 - When multiple itineraries exist, add flows must prompt for target itinerary, then remember that choice for subsequent adds.
 - Enforce a soft cap of 5 non-archived itineraries; only surface guidance when the user attempts to create a 6th itinerary.
 

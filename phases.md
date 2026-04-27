@@ -1,6 +1,6 @@
 ﻿# Blame Travis Sprint Roadmap
 
-**Last Updated:** 2026-04-26
+**Last Updated:** 2026-04-27
 **Execution Model:** Vertical slice delivery by user outcome
 **Core Product:** Things-to-do discovery -> itinerary planning -> booking conversion -> retention
 
@@ -385,6 +385,16 @@ Create or verify SQL for booking funnel:
 - 2026-04-26: Discovery key-boundary hardening + temporary continuity fallback:
   - `discovery.ts` now prefers edge-function actions for autocomplete/geocode/reverse-geocode with temporary dev fallback when edge deploys lag.
   - Added handoff/runbook at `docs/release/discovery-fallback-handoff.md` including production cutover steps to disable fallback before launch.
+- 2026-04-27: Security hardening pass for privileged edge calls and missing RLS coverage:
+  - Added scheduler/admin secret-gate enforcement (`x-edge-cron-secret`) to `notification-dispatch` and `reconcile-adventure-statuses`.
+  - Added authenticated ownership verification in `generate-journey-image` before writes to `adventures`/storage.
+  - Updated discovery flow to skip hero-image invoke in guest mode to avoid unauthorized privileged writes.
+  - Added migration `supabase/migrations/007_security_rls_hardening.sql` to enforce owner RLS on `profiles`, `adventures`, `adventure_days`, `notification_devices`, and `notification_deliveries`.
+- 2026-04-27: Retired legacy modal itinerary generation flow:
+  - Removed `AdventureRequest`, `AdventureAssignment`, and `AdventureReveal` from the active root navigator route graph.
+  - Deleted retired screen implementations and removed route types from `RootStackParamList`.
+  - Notification intents now resolve only to `MainTabs` targets (`Home`, `Journeys`, `Passport`) with itinerary nudges routed to `Journeys`.
+  - Legacy Desk CTA fallbacks now route to `MainTabs` -> `Journeys`.
 
 ---
 

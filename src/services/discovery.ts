@@ -874,19 +874,23 @@ export const discoveryService = {
       console.warn('Adventure day persistence skipped:', error);
     }
 
-    console.log('[STAGE 5] Travis is painting the briefing background...');
-    try {
-      await supabase.functions.invoke('generate-journey-image', {
-        body: {
-          title: narrative?.title,
-          location: initialCity,
-          adventureId,
-          goal: narrative?.main_goal,
-          intensity: params.intensity,
-        },
-      });
-    } catch (e) {
-      console.warn('[IMAGE ERROR] Travis missed a stroke (non-critical):', e);
+    if (user?.id) {
+      console.log('[STAGE 5] Travis is painting the briefing background...');
+      try {
+        await supabase.functions.invoke('generate-journey-image', {
+          body: {
+            title: narrative?.title,
+            location: initialCity,
+            adventureId,
+            goal: narrative?.main_goal,
+            intensity: params.intensity,
+          },
+        });
+      } catch (e) {
+        console.warn('[IMAGE ERROR] Travis missed a stroke (non-critical):', e);
+      }
+    } else {
+      console.log('[STAGE 5] Skipping hero generation for guest flow (auth required).');
     }
 
     console.log('[PIPELINE] Stamped and returning.');

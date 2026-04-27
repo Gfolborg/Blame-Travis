@@ -2,8 +2,6 @@ import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { CompositeScreenProps, NavigatorScreenParams } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { Adventure } from './adventure';
-
 /**
  * Tab Navigator Param List
  */
@@ -23,9 +21,6 @@ export type RootStackParamList = {
   SignUp: undefined;
   Onboarding: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList>;
-  AdventureRequest: undefined;
-  AdventureAssignment: { AdventureId: string; initialAdventure?: Adventure };
-  AdventureReveal: { AdventureId: string };
   AdventureDetails: { AdventureId: string };
   LocationDetails: { locationId: string };
   Settings: undefined;

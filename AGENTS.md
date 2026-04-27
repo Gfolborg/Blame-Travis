@@ -95,6 +95,7 @@ Mandatory UX behavior:
 - map/list views remain state-synchronized
 - map mode must degrade safely when itinerary stops have missing coordinates
 - no dead-end no-result pages
+- legacy modal itinerary generation routes (`AdventureRequest`, `AdventureAssignment`, `AdventureReveal`) must not be used for active product flows
 - bottom tab navigation must keep active labels legible without truncation artifacts
 - active bottom-tab state should preserve icon-first scanning with optional label support beneath icon
 - tab returns to Journeys must avoid full-screen loading flicker; use refresh-in-place behavior after first load
@@ -132,6 +133,8 @@ Security requirements:
 - server-side provider signing and sensitive calls
 - prompt-input and prompt-output safety validation for LLM endpoints
 - temporary client-side fallback for provider web-service calls is permitted only for development continuity and must be explicitly disabled before production release
+- privileged scheduler/admin edge functions must require a non-public shared secret gate (for example `x-edge-cron-secret`)
+- privileged write edge functions must enforce authenticated ownership checks before mutating user-owned records
 
 ## 9. Sprint Execution Contract
 

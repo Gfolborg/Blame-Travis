@@ -67,6 +67,7 @@ Required for every touched screen:
 - offline state
 - denied-permission state
 - safe map degradation for missing coordinates when map mode is present
+- legacy modal itinerary generation routes (`AdventureRequest`, `AdventureAssignment`, `AdventureReveal`) are retired and cannot be used as active product entrypoints
 - bottom-tab active labels remain legible without truncation artifacts
 - active bottom-tab treatment stays icon-first with optional label support beneath icon
 - returning to Journeys via tab switch refreshes in-place after first load (no full-screen flicker)
@@ -113,6 +114,8 @@ Never use:
 - LLM prompt and output safety checks
 - explicit, clear permission rationale and fallbacks
 - temporary client-side provider fallback paths are allowed only for development continuity and must be removed/disabled before production release
+- privileged scheduler/admin edge functions must require a non-public shared secret gate (for example `x-edge-cron-secret`)
+- privileged write edge functions must enforce authenticated ownership checks before mutating user-owned records
 
 ## 10. Sprint-Based Delivery Rules
 

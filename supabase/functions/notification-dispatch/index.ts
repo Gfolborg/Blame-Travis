@@ -6,7 +6,7 @@ import {
   createNotificationPayload,
   NotificationEventType,
   shiftOutOfQuietHours,
-} from "../../../shared/notifications";
+} from "../../../shared/notifications.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +15,7 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const EDGE_CRON_SECRET = Deno.env.get("EDGE_CRON_SECRET") ?? "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -170,6 +171,26 @@ serve(async (req) => {
   }
 
   try {
+    if (req.method !== "POST") {
+      return new Response(JSON.stringify({ error: "METHOD_NOT_ALLOWED" }), {
+        status: 405,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!EDGE_CRON_SECRET) {
+      return new Response(JSON.stringify({ error: "SERVER_MISCONFIGURED" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const providedSecret = req.headers.get("x-edge-cron-secret") ?? "";
+    if (providedSecret !== EDGE_CRON_SECRET) {
+      return new Response(JSON.stringify({ error: "UNAUTHORIZED" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const now = new Date();
 
     const [{ data: profiles, error: profileError }, { data: adventures, error: adventureError }, { data: deliveries, error: deliveryError }] = await Promise.all([

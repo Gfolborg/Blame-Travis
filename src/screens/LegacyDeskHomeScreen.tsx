@@ -332,7 +332,7 @@ const LegacyDeskHomeScreen = () => {
             <TouchableOpacity
               style={styles.emptyDeskButton}
               activeOpacity={0.9}
-              onPress={() => navigation.navigate('AdventureRequest')}
+              onPress={() => navigation.navigate('MainTabs', { screen: 'Journeys' })}
             >
               <Text style={styles.emptyDeskButtonText}>Start your Story Here</Text>
             </TouchableOpacity>
@@ -432,7 +432,7 @@ const LegacyDeskHomeScreen = () => {
 
             <TouchableOpacity
               style={styles.fullRouteButton}
-              onPress={() => navigation.navigate('AdventureReveal', { AdventureId: currentAdventure!.id })}
+              onPress={() => navigation.navigate('MainTabs', { screen: 'Journeys' })}
             >
               <Text style={styles.fullRouteButtonText}>{getFullRouteCta()}</Text>
             </TouchableOpacity>
