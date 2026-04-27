@@ -29,6 +29,7 @@ export interface ItineraryActivityItem {
   id: string;
   itineraryId: string;
   activityId: string;
+  canonicalKey: string | null;
   dayIndex: number;
   positionIndex: number;
   scheduledAt: string | null;
@@ -37,6 +38,7 @@ export interface ItineraryActivityItem {
   imageUrl: string | null;
   category: string | null;
   city: string | null;
+  countryCode: string | null;
   lat: number | null;
   lng: number | null;
   durationMinutesMin: number | null;

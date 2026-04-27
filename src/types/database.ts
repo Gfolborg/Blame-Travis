@@ -755,6 +755,84 @@ export type Database = {
           },
         ]
       }
+      passport_stamps: {
+        Row: {
+          activity_id: string | null
+          canonical_key: string | null
+          city: string | null
+          country_code: string | null
+          created_at: string
+          day_index: number
+          day_stamped_count_at_stamp: number | null
+          day_total_stops: number | null
+          distance_meters: number | null
+          id: string
+          itinerary_id: string | null
+          lat: number | null
+          lng: number | null
+          place_id: string
+          source: string
+          stamped_at: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          activity_id?: string | null
+          canonical_key?: string | null
+          city?: string | null
+          country_code?: string | null
+          created_at?: string
+          day_index?: number
+          day_stamped_count_at_stamp?: number | null
+          day_total_stops?: number | null
+          distance_meters?: number | null
+          id?: string
+          itinerary_id?: string | null
+          lat?: number | null
+          lng?: number | null
+          place_id: string
+          source?: string
+          stamped_at?: string
+          title?: string
+          user_id: string
+        }
+        Update: {
+          activity_id?: string | null
+          canonical_key?: string | null
+          city?: string | null
+          country_code?: string | null
+          created_at?: string
+          day_index?: number
+          day_stamped_count_at_stamp?: number | null
+          day_total_stops?: number | null
+          distance_meters?: number | null
+          id?: string
+          itinerary_id?: string | null
+          lat?: number | null
+          lng?: number | null
+          place_id?: string
+          source?: string
+          stamped_at?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "passport_stamps_activity_id_fkey"
+            columns: ["activity_id"]
+            isOneToOne: false
+            referencedRelation: "activities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "passport_stamps_itinerary_id_fkey"
+            columns: ["itinerary_id"]
+            isOneToOne: false
+            referencedRelation: "itineraries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           budget_default: number | null
@@ -866,6 +944,33 @@ export type Database = {
           id?: string
           result_count?: number | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      user_achievements: {
+        Row: {
+          achievement_key: string
+          created_at: string
+          id: string
+          metadata_json: Json
+          unlocked_at: string
+          user_id: string
+        }
+        Insert: {
+          achievement_key: string
+          created_at?: string
+          id?: string
+          metadata_json?: Json
+          unlocked_at?: string
+          user_id: string
+        }
+        Update: {
+          achievement_key?: string
+          created_at?: string
+          id?: string
+          metadata_json?: Json
+          unlocked_at?: string
+          user_id?: string
         }
         Relationships: []
       }

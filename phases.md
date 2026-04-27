@@ -414,7 +414,7 @@ Create or verify SQL for booking funnel:
 - [ ] Implement "Top Picks" rail by destination.
 - [ ] Integrate explanation generation with validated LLM output schema.
 - [ ] Add deterministic fallback copy for model errors/timeouts.
-- [ ] Design and implement Passport screen v1 (default/loading/empty/error states + accessibility pass).
+- [x] Design and implement Passport screen v1 (default/loading/empty/error states + accessibility pass).
 - [ ] Design and implement Profile screen v1 (settings clarity, notice feedback, accessibility pass).
 - [ ] Complete API-live setup hardening for release (provider key boundary enforcement + deployment config alignment).
 
@@ -450,6 +450,13 @@ Create or verify SQL for personalization data:
 ### Progress Log
 - 2026-04-19: Sprint initialized.
 - 2026-04-26: Re-anchored backlog to include deferred Passport/Profile design work and API-live setup hardening so release-critical work stays explicitly tracked.
+- 2026-04-27: User-approved pre-sprint Passport v1 slice landed while Sprint 4 remains active:
+  - Added migration `supabase/migrations/008_passport_stamps_and_achievements.sql` with owner RLS, uniqueness, and read-path indexes.
+  - Added passport domain layer (`src/services/passport.ts`, `src/types/passport.ts`, `src/config/passportVisuals.ts`) with auth + guest fallback storage, auto-stamp persistence, and achievement evaluation.
+  - Added foreground auto-stamp coordinator (`src/components/PassportAutoStampCoordinator.tsx`) with active-itinerary targeting, `500ft` proximity rule, and `~120s` dwell gate.
+  - Replaced `PassportScreen` placeholder with full Passport v1 state matrix (loading/empty/error/offline/denied/default), achievement cards, map/list parity, and placeholder ink-badge stamp visuals.
+  - Added unit coverage in `src/services/passport.test.ts`.
+  - Added art-direction + asset swap guidance in `docs/sprint-5/passport-stamp-art-direction.md`.
 
 ---
 

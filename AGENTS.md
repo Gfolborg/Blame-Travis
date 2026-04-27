@@ -99,6 +99,8 @@ Mandatory UX behavior:
 - bottom tab navigation must keep active labels legible without truncation artifacts
 - active bottom-tab state should preserve icon-first scanning with optional label support beneath icon
 - tab returns to Journeys must avoid full-screen loading flicker; use refresh-in-place behavior after first load
+- passport auto-stamping must run foreground-only in MVP, with automatic stamping at approximately 500ft proximity after brief dwell (~120s) for active itinerary stops
+- passport progress must not depend on manual "stamp this place" actions
 
 Mandatory accessibility rules:
 - text contrast at WCAG AA minimum

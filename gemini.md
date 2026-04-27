@@ -71,6 +71,8 @@ Required for every touched screen:
 - bottom-tab active labels remain legible without truncation artifacts
 - active bottom-tab treatment stays icon-first with optional label support beneath icon
 - returning to Journeys via tab switch refreshes in-place after first load (no full-screen flicker)
+- passport auto-stamping runs foreground-only in MVP; stamp automatically when user remains within ~500ft of an active-itinerary stop for ~120s
+- passport experience cannot require manual "stamp this place" actions
 
 Interaction requirements:
 - clear primary action
