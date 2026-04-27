@@ -59,6 +59,22 @@ const mockActivities: any[] = [
   },
 ];
 
+const createActivitiesQueryMock = (data: any[]) => {
+  const query: any = {};
+  query.select = jest.fn().mockReturnValue(query);
+  query.eq = jest.fn().mockReturnValue(query);
+  query.order = jest.fn().mockReturnValue(query);
+  query.range = jest.fn().mockReturnValue(query);
+  query.limit = jest.fn().mockReturnValue(query);
+  query.or = jest.fn().mockReturnValue(query);
+  query.gte = jest.fn().mockReturnValue(query);
+  query.lte = jest.fn().mockReturnValue(query);
+  query.then = jest.fn().mockImplementation((callback: any) =>
+    callback({ data, error: null })
+  );
+  return query;
+};
+
 describe('exploreService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -66,15 +82,7 @@ describe('exploreService', () => {
 
   describe('search', () => {
     it('returns filtered results from DB', async () => {
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        or: jest.fn().mockReturnThis(),
-        then: jest.fn().mockImplementation((callback) =>
-          callback({ data: mockActivities, error: null })
-        ),
-      });
+      (supabase.from as jest.Mock).mockReturnValue(createActivitiesQueryMock(mockActivities));
 
       const filters: ExploreFilters = {
         categories: ['Culture'],
@@ -102,17 +110,7 @@ describe('exploreService', () => {
 
     it('falls back to provider if DB results are low', async () => {
       // DB returns only 1 result (target is 12)
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        or: jest.fn().mockReturnThis(),
-        gte: jest.fn().mockReturnThis(),
-        lte: jest.fn().mockReturnThis(),
-        then: jest.fn().mockImplementation((callback) =>
-          callback({ data: [mockActivities[0]], error: null })
-        ),
-      });
+      (supabase.from as jest.Mock).mockReturnValue(createActivitiesQueryMock([mockActivities[0]]));
 
       // Provider returns another result
       (supabase.functions.invoke as jest.Mock).mockResolvedValue({
@@ -165,15 +163,7 @@ describe('exploreService', () => {
     };
 
     it('filters by category', async () => {
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        or: jest.fn().mockReturnThis(),
-        then: jest.fn().mockImplementation((callback) =>
-          callback({ data: mockActivities, error: null })
-        ),
-      });
+      (supabase.from as jest.Mock).mockReturnValue(createActivitiesQueryMock(mockActivities));
 
       const result = await exploreService.search({
         query: '',
@@ -189,15 +179,7 @@ describe('exploreService', () => {
     });
 
     it('filters by rating', async () => {
-        (supabase.from as jest.Mock).mockReturnValue({
-          select: jest.fn().mockReturnThis(),
-          eq: jest.fn().mockReturnThis(),
-          limit: jest.fn().mockReturnThis(),
-          or: jest.fn().mockReturnThis(),
-          then: jest.fn().mockImplementation((callback) =>
-            callback({ data: mockActivities, error: null })
-          ),
-        });
+        (supabase.from as jest.Mock).mockReturnValue(createActivitiesQueryMock(mockActivities));
   
         const result = await exploreService.search({
           query: '',
@@ -213,15 +195,7 @@ describe('exploreService', () => {
       });
 
     it('filters by duration', async () => {
-        (supabase.from as jest.Mock).mockReturnValue({
-          select: jest.fn().mockReturnThis(),
-          eq: jest.fn().mockReturnThis(),
-          limit: jest.fn().mockReturnThis(),
-          or: jest.fn().mockReturnThis(),
-          then: jest.fn().mockImplementation((callback) =>
-            callback({ data: mockActivities, error: null })
-          ),
-        });
+        (supabase.from as jest.Mock).mockReturnValue(createActivitiesQueryMock(mockActivities));
   
         // Activity 1 is 60-120 mins (bucket '60_180')
         // Activity 2 is 300-400 mins (bucket '181_360' or 'gt360')
@@ -240,15 +214,7 @@ describe('exploreService', () => {
     });
 
     it('filters by group type', async () => {
-      (supabase.from as jest.Mock).mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        or: jest.fn().mockReturnThis(),
-        then: jest.fn().mockImplementation((callback) =>
-          callback({ data: mockActivities, error: null })
-        ),
-      });
+      (supabase.from as jest.Mock).mockReturnValue(createActivitiesQueryMock(mockActivities));
 
       const result = await exploreService.search({
         query: '',

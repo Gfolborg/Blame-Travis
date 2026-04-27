@@ -1,4 +1,5 @@
 import { Adventure, AdventureDay, ItineraryStop } from '../types/adventure';
+import { placesService } from './places';
 import { supabase } from './supabase';
 import { travisService } from './travis';
 import { fetchAdventureById, getCurrentTripDay } from './adventureData';
@@ -26,8 +27,14 @@ interface BlueprintDay {
   slots?: BlueprintSlot[];
 }
 
-const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+const GOOGLE_MAPS_PUBLIC_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() || '';
 const PLACES_API_BASE = 'https://places.googleapis.com/v1';
+const GEOCODING_API_BASE = 'https://maps.googleapis.com/maps/api/geocode/json';
+const IS_DEV_RUNTIME =
+  typeof globalThis !== 'undefined' &&
+  (globalThis as typeof globalThis & { __DEV__?: boolean }).__DEV__ === true;
+const CLIENT_DISCOVERY_FALLBACK_ENABLED =
+  IS_DEV_RUNTIME || process.env.EXPO_PUBLIC_ENABLE_CLIENT_DISCOVERY_FALLBACK === 'true';
 const GUEST_ID = '00000000-0000-0000-0000-000000000000';
 const INITIAL_HYDRATION_WINDOW = 3;
 const FORWARD_PREFETCH_DAYS = 2;
@@ -52,6 +59,53 @@ const uniqueByPlaceId = (stops: ItineraryStop[]) => {
 
 const hasPlaceId = (value: unknown): value is { place_id?: string } =>
   typeof value === 'object' && value !== null && 'place_id' in value;
+
+const canUseClientDiscoveryFallback = () =>
+  CLIENT_DISCOVERY_FALLBACK_ENABLED && GOOGLE_MAPS_PUBLIC_KEY.length > 0;
+
+const fetchAutocompleteViaClient = async (input: string): Promise<any[]> => {
+  const response = await fetch(`${PLACES_API_BASE}/places:autocomplete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_MAPS_PUBLIC_KEY,
+      'X-Goog-FieldMask': 'suggestions.placePrediction.placeId,suggestions.placePrediction.text',
+    },
+    body: JSON.stringify({
+      input,
+      includedPrimaryTypes: ['(cities)'],
+    }),
+  });
+  const data = await response.json();
+  return data?.suggestions || [];
+};
+
+const fetchGeocodeViaClient = async (
+  query: string,
+  placeId?: string,
+): Promise<{ lat: number; lng: number } | null> => {
+  const url = placeId ? `${PLACES_API_BASE}/places/${placeId}` : `${PLACES_API_BASE}/places:searchText`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Goog-Api-Key': GOOGLE_MAPS_PUBLIC_KEY,
+    'X-Goog-FieldMask': placeId ? 'location' : 'places.location',
+  };
+  const response = await fetch(url, {
+    method: placeId ? 'GET' : 'POST',
+    headers,
+    ...(placeId ? {} : { body: JSON.stringify({ textQuery: query }) }),
+  });
+  const data = await response.json();
+  const location = placeId ? data?.location : data?.places?.[0]?.location;
+  return location ? { lat: location.latitude, lng: location.longitude } : null;
+};
+
+const fetchReverseGeocodeViaClient = async (lat: number, lng: number): Promise<string> => {
+  const url = `${GEOCODING_API_BASE}?latlng=${lat},${lng}&result_type=locality&key=${GOOGLE_MAPS_PUBLIC_KEY}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  return data?.results?.[0]?.formatted_address || 'this area';
+};
 
 const extractSearchResults = async (params: {
   coords: { lat: number; lng: number };
@@ -127,8 +181,7 @@ const hydrateDayFromOutline = async (params: {
         // Foursquare format
         imageUrl = `${p.prefix}original${p.suffix}`;
       } else if (p.name) {
-        // Google Places V1 format (e.g. places/ChIJ.../photos/AUis...)
-        imageUrl = `https://places.googleapis.com/v1/${p.name}/media?key=${GOOGLE_MAPS_API_KEY}&maxWidthPx=400`;
+        imageUrl = placesService.getPhotoUri(p.name, 400);
       }
     }
 
@@ -232,50 +285,81 @@ export const discoveryService = {
   async autocomplete(input: string): Promise<any[]> {
     if (!input || input.length < 3) return [];
     try {
-      const response = await fetch(`${PLACES_API_BASE}/places:autocomplete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY || '',
-          'X-Goog-FieldMask': 'suggestions.placePrediction.placeId,suggestions.placePrediction.text',
+      const { data, error } = await supabase.functions.invoke('discover-places', {
+        body: {
+          action: 'autocomplete-cities',
+          payload: { input },
         },
-        body: JSON.stringify({ input, includedPrimaryTypes: ['(cities)'] }),
       });
-      const data = await response.json();
-      return data?.suggestions || [];
+      const suggestions = data?.suggestions || [];
+      if (!error && suggestions.length > 0) {
+        return suggestions;
+      }
+      if (!canUseClientDiscoveryFallback()) {
+        return suggestions;
+      }
+      return await fetchAutocompleteViaClient(input);
     } catch {
+      if (canUseClientDiscoveryFallback()) {
+        try {
+          return await fetchAutocompleteViaClient(input);
+        } catch {
+          return [];
+        }
+      }
       return [];
     }
   },
 
   async geocode(query: string, placeId?: string): Promise<{ lat: number; lng: number } | null> {
     try {
-      const url = placeId ? `${PLACES_API_BASE}/places/${placeId}` : `${PLACES_API_BASE}/places:searchText`;
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY || '',
-        'X-Goog-FieldMask': placeId ? 'location' : 'places.location',
-      };
-      const response = await fetch(url, {
-        method: placeId ? 'GET' : 'POST',
-        headers,
-        ...(placeId ? {} : { body: JSON.stringify({ textQuery: query }) }),
+      const { data, error } = await supabase.functions.invoke('discover-places', {
+        body: {
+          action: 'geocode',
+          payload: { query, placeId },
+        },
       });
-      const data = await response.json();
-      const location = placeId ? data.location : data.places?.[0]?.location;
-      return location ? { lat: location.latitude, lng: location.longitude } : null;
+      if (error && !canUseClientDiscoveryFallback()) return null;
+      const location = data?.location || data?.places?.[0]?.location;
+      if (location) return { lat: location.latitude, lng: location.longitude };
+      if (!canUseClientDiscoveryFallback()) return null;
+      return await fetchGeocodeViaClient(query, placeId);
     } catch {
+      if (canUseClientDiscoveryFallback()) {
+        try {
+          return await fetchGeocodeViaClient(query, placeId);
+        } catch {
+          return null;
+        }
+      }
       return null;
     }
   },
 
   async reverseGeocode(lat: number, lng: number): Promise<string> {
     try {
-      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&result_type=locality&key=${GOOGLE_MAPS_API_KEY}`;
-      const response = await fetch(url);
-      const data = await response.json();
-      return data.results?.[0]?.formatted_address || 'this area';
+      const { data, error } = await supabase.functions.invoke('discover-places', {
+        body: {
+          action: 'reverse-geocode-locality',
+          payload: { lat, lng },
+        },
+      });
+      if (!error) {
+        const formatted = data?.formatted_address || data?.formattedAddress;
+        if (formatted) {
+          return formatted;
+        }
+      }
+      if (!canUseClientDiscoveryFallback()) return 'this area';
+      return await fetchReverseGeocodeViaClient(lat, lng);
     } catch {
+      if (canUseClientDiscoveryFallback()) {
+        try {
+          return await fetchReverseGeocodeViaClient(lat, lng);
+        } catch {
+          return 'this area';
+        }
+      }
       return 'this area';
     }
   },
@@ -352,7 +436,7 @@ export const discoveryService = {
           if (photo.prefix && photo.suffix) {
             imageUrl = `${photo.prefix}original${photo.suffix}`;
           } else if (photo.name) {
-            imageUrl = `https://places.googleapis.com/v1/${photo.name}/media?key=${GOOGLE_MAPS_API_KEY}&maxWidthPx=400`;
+            imageUrl = placesService.getPhotoUri(photo.name, 400);
           }
         }
         const priceString = r.price ? '$'.repeat(r.price) : '$$';

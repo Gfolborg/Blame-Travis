@@ -131,6 +131,7 @@ Security requirements:
 - secrets never in public client bundles
 - server-side provider signing and sensitive calls
 - prompt-input and prompt-output safety validation for LLM endpoints
+- temporary client-side fallback for provider web-service calls is permitted only for development continuity and must be explicitly disabled before production release
 
 ## 9. Sprint Execution Contract
 

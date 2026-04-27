@@ -382,6 +382,9 @@ Create or verify SQL for booking funnel:
 - 2026-04-26: Restored baseline TypeScript health:
   - `ExploreScreen` callback ordering corrected to eliminate block-scoped use-before-declaration errors.
   - `JourneysScreen` invalid `TextInput` and style typing usage cleaned up for `npx tsc --noEmit` pass.
+- 2026-04-26: Discovery key-boundary hardening + temporary continuity fallback:
+  - `discovery.ts` now prefers edge-function actions for autocomplete/geocode/reverse-geocode with temporary dev fallback when edge deploys lag.
+  - Added handoff/runbook at `docs/release/discovery-fallback-handoff.md` including production cutover steps to disable fallback before launch.
 
 ---
 
@@ -401,6 +404,9 @@ Create or verify SQL for booking funnel:
 - [ ] Implement "Top Picks" rail by destination.
 - [ ] Integrate explanation generation with validated LLM output schema.
 - [ ] Add deterministic fallback copy for model errors/timeouts.
+- [ ] Design and implement Passport screen v1 (default/loading/empty/error states + accessibility pass).
+- [ ] Design and implement Profile screen v1 (settings clarity, notice feedback, accessibility pass).
+- [ ] Complete API-live setup hardening for release (provider key boundary enforcement + deployment config alignment).
 
 ### Supabase Agent Prompt
 ```text
@@ -416,17 +422,24 @@ Create or verify SQL for personalization data:
 - Ranking service v1
 - Explanation service with safety validation
 - Personalization telemetry report format
+- Passport screen v1 implementation + UX state matrix
+- Profile screen v1 implementation + UX state matrix
+- API-live setup checklist with verification evidence
 
 ### Acceptance Gates
 - [ ] Ranking reflects explicit preferences in test fixtures.
 - [ ] Explanation text never contradicts structured facts.
 - [ ] Timeout path returns usable fallback copy.
+- [ ] Passport and Profile screens satisfy UX/accessibility contract states and no dead-end flows.
+- [ ] Android preview build uses production-safe key boundaries (client restricted key only; web-service keys server-side).
+- [ ] Deployment pipeline readiness checklist passes (`lint`, `tsc`, `tests`, `expo-doctor`, preview build).
 
 ### Exit Criteria
 - Relevance and explainability work together without trust regressions.
 
 ### Progress Log
 - 2026-04-19: Sprint initialized.
+- 2026-04-26: Re-anchored backlog to include deferred Passport/Profile design work and API-live setup hardening so release-critical work stays explicitly tracked.
 
 ---
 

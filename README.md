@@ -60,6 +60,7 @@ The default browse surface should include:
 - **POI discovery layer**: Google Places API first (optional Foursquare expansion).
 - **Bookable activity layer**: Viator first, with future optional expansion to GetYourGuide/Amadeus.
 - **Hybrid strategy**: broad discovery plus bookable depth in the same destination flow.
+- **Current security mode**: discovery helper calls (autocomplete/geocode/reverse-geocode) are edge-first; temporary client fallback is allowed for development only. See `docs/release/discovery-fallback-handoff.md`.
 
 ### Personalization Stack
 

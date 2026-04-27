@@ -112,6 +112,7 @@ Never use:
 - server-side handling for sensitive provider integrations
 - LLM prompt and output safety checks
 - explicit, clear permission rationale and fallbacks
+- temporary client-side provider fallback paths are allowed only for development continuity and must be removed/disabled before production release
 
 ## 10. Sprint-Based Delivery Rules
 

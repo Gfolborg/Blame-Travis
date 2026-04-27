@@ -4,7 +4,6 @@ const GOOGLE_MAPS_API_KEY = Deno.env.get("GOOGLE_MAPS_API_KEY")
 const FOURSQUARE_API_KEY = Deno.env.get("FOURSQUARE_API_KEY")
 
 const PLACES_API_BASE = 'https://places.googleapis.com/v1'
-const LEGACY_PLACES_AUTOCOMPLETE = 'https://maps.googleapis.com/maps/api/place/autocomplete/json'
 const GEOCODING_API_BASE = 'https://maps.googleapis.com/maps/api/geocode/json'
 const FOURSQUARE_API_BASE = 'https://api.foursquare.com/v3/places/search'
 const SEARCH_CACHE_TTL_MS = 90000
@@ -179,6 +178,63 @@ serve(async (req) => {
       })
       const data = await response.json()
       return new Response(JSON.stringify(data), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+
+    // --- ACTION: AUTOCOMPLETE CITIES (GOOGLE V1) ---
+    if (action === 'autocomplete-cities') {
+      const { input } = payload
+      if (!input || String(input).trim().length < 3) {
+        return new Response(JSON.stringify({ suggestions: [] }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+
+      const response = await fetch(`${PLACES_API_BASE}/places:autocomplete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY!,
+          'X-Goog-FieldMask': 'suggestions.placePrediction.placeId,suggestions.placePrediction.text',
+        },
+        body: JSON.stringify({
+          input: String(input),
+          includedPrimaryTypes: ['(cities)'],
+        }),
+      })
+      const data = await response.json()
+      return new Response(JSON.stringify(data), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+
+    // --- ACTION: GEOCODE (GOOGLE V1) ---
+    if (action === 'geocode') {
+      const { query, placeId } = payload
+      const url = placeId ? `${PLACES_API_BASE}/places/${placeId}` : `${PLACES_API_BASE}/places:searchText`
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY!,
+        'X-Goog-FieldMask': placeId ? 'location' : 'places.location',
+      }
+      const response = await fetch(url, {
+        method: placeId ? 'GET' : 'POST',
+        headers,
+        ...(placeId ? {} : { body: JSON.stringify({ textQuery: String(query || '') }) }),
+      })
+      const data = await response.json()
+      return new Response(JSON.stringify(data), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+
+    // --- ACTION: REVERSE GEOCODE LOCALITY ---
+    if (action === 'reverse-geocode-locality') {
+      const { lat, lng } = payload
+      const url = `${GEOCODING_API_BASE}?latlng=${Number(lat)},${Number(lng)}&result_type=locality&key=${GOOGLE_MAPS_API_KEY!}`
+      const response = await fetch(url)
+      const data = await response.json()
+      const formattedAddress = data?.results?.[0]?.formatted_address || null
+      return new Response(
+        JSON.stringify({
+          formattedAddress,
+          formatted_address: formattedAddress,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
 
     // --- ACTION: SEARCH (GOOGLE V1) ---
