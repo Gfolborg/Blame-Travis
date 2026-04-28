@@ -415,7 +415,7 @@ Create or verify SQL for booking funnel:
 - [ ] Integrate explanation generation with validated LLM output schema.
 - [ ] Add deterministic fallback copy for model errors/timeouts.
 - [x] Design and implement Passport screen v1 (default/loading/empty/error states + accessibility pass).
-- [ ] Design and implement Profile screen v1 (settings clarity, notice feedback, accessibility pass).
+- [x] Design and implement Profile screen v1 (settings clarity, notice feedback, accessibility pass).
 - [ ] Complete API-live setup hardening for release (provider key boundary enforcement + deployment config alignment).
 
 ### Supabase Agent Prompt
@@ -457,6 +457,21 @@ Create or verify SQL for personalization data:
   - Replaced `PassportScreen` placeholder with full Passport v1 state matrix (loading/empty/error/offline/denied/default), achievement cards, map/list parity, and placeholder ink-badge stamp visuals.
   - Added unit coverage in `src/services/passport.test.ts`.
   - Added art-direction + asset swap guidance in `docs/sprint-5/passport-stamp-art-direction.md`.
+- 2026-04-27: Completed Passport screen DESIGN polish and UX quality pass (The Interactive HUD & Half-Screen Dossier):
+  - Overhauled the layout to prioritize an uncompromised, full-screen interactive MapView ("Command Center").
+  - Moved the "Nomad Log" stats pill lower for better reachability and visual balance.
+  - Redesigned the "Dossier" as a beautiful blurred sheet that slides up from the bottom to cover ~85% of the screen.
+  - Implemented a 2-column grid format for the "Log Entries" section to maximize visibility of travel stamps, using dynamic keys to support safe layout transitions.
+  - Added "Map-Jump" logic: selecting any stamp in the Dossier closes the sheet and triggers a smooth map camera animation to that location.
+  - Hardened achievement visualization with dynamic progress bars and state-specific iconography.
+  - Verified accessibility (tap targets, contrast) and TypeScript integrity.
+- 2026-04-28: Completed Profile screen v1 redesign as Traveler Control Center:
+  - Replaced legacy single-toggle layout with hero + card architecture covering Account, Notifications, Permissions, and Privacy.
+  - Implemented guest read-only behavior with explicit sign-in-required messaging and disabled write controls.
+  - Added real notification and location permission status handling with request/open-settings recovery actions.
+  - Wired notification master toggle to profile persistence plus notification device registration/disable service flows.
+  - Added offline snapshot banner and write lock behavior when profile controls are in offline mode.
+  - Validated TypeScript and lint on touched profile files.
 
 ---
 

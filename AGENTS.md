@@ -101,6 +101,7 @@ Mandatory UX behavior:
 - tab returns to Journeys must avoid full-screen loading flicker; use refresh-in-place behavior after first load
 - passport auto-stamping must run foreground-only in MVP, with automatic stamping at approximately 500ft proximity after brief dwell (~120s) for active itinerary stops
 - passport progress must not depend on manual "stamp this place" actions
+- profile v1 should prioritize core controls (account, notifications, permissions, privacy) and should not surface Travis tone/default controls in the primary profile layout
 
 Mandatory accessibility rules:
 - text contrast at WCAG AA minimum

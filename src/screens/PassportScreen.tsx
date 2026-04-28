@@ -1,21 +1,27 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, useRef } from 'react';
 import {
   ActivityIndicator,
   Linking,
-  RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  Dimensions,
+  Platform,
+  FlatList,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { MotiView, AnimatePresence } from 'moti';
+import { Shadow } from 'react-native-shadow-2';
 
-import { getStampVisualPreset } from '../config/passportVisuals';
-import { listAchievementDefinitions, passportService } from '../services/passport';
+import { getStampVisualPreset, getAchievementVisual } from '../config/passportVisuals';
+import { listAchievementDefinitions, passportService, PassportStopTarget } from '../services/passport';
 import { PassportSnapshot, PassportStamp } from '../types/passport';
-import { theme } from '../theme';
+import { theme, palette } from '../theme';
+import { useProfile } from '../hooks/useProfile';
+
+const { width, height } = Dimensions.get('window');
 
 let MapView: any = null;
 let Marker: any = null;
@@ -53,50 +59,104 @@ const EMPTY_SNAPSHOT: PassportSnapshot = {
   permissionStatus: 'undetermined',
 };
 
-const StampChip: React.FC<{ stamp: PassportStamp }> = ({ stamp }) => {
+// Component for a grid item in the Dossier (Stamps)
+const StampGridItem: React.FC<{ stamp: PassportStamp; onPress: () => void }> = ({ stamp, onPress }) => {
   const visual = getStampVisualPreset(stamp.placeId || stamp.id);
+  
   return (
-    <View style={[styles.stampChip, { backgroundColor: visual.fill, borderColor: visual.ring }]}>
-      <View style={[styles.stampGlyph, { borderColor: visual.ring }]}>
-        <Text style={[styles.stampGlyphText, { color: visual.text }]}>{visual.glyph}</Text>
-      </View>
-      <View style={styles.stampMeta}>
-        <Text style={styles.stampTitle} numberOfLines={1}>
-          {stamp.title}
-        </Text>
-        <Text style={styles.stampSubtitle} numberOfLines={1}>
-          {(stamp.city || 'Unknown city').toUpperCase()} {stamp.countryCode ? `| ${stamp.countryCode}` : ''}
-        </Text>
-        <Text style={styles.stampDate}>{formatStampDate(stamp.stampedAt)}</Text>
-      </View>
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={styles.gridItemWrapper}>
+      <Shadow distance={4} startColor="rgba(0,0,0,0.04)" offset={[0, 2]} style={{ width: '100%' }} containerStyle={{ width: '100%' }}>
+        <View style={[styles.gridCard, { borderTopColor: visual.ring, borderTopWidth: 3 }]}>
+          <View style={[styles.gridIconBox, { backgroundColor: visual.fill }]}>
+            <Text style={[styles.gridIconText, { color: visual.text }]}>{visual.glyph}</Text>
+          </View>
+          <View style={styles.gridMeta}>
+            <Text style={styles.gridTitle} numberOfLines={1}>{stamp.title.toUpperCase()}</Text>
+            <Text style={styles.gridSub} numberOfLines={1}>{stamp.city || 'STOP'}</Text>
+            <Text style={styles.gridDate}>{formatStampDate(stamp.stampedAt)}</Text>
+          </View>
+        </View>
+      </Shadow>
+    </TouchableOpacity>
+  );
+};
+
+// Component for a grid item in the Dossier (Visas/Achievements)
+const VisaGridItem: React.FC<{ item: any; isLocked?: boolean; stats: PassportSnapshot['stats'] }> = ({ item, isLocked, stats }) => {
+  const definition = listAchievementDefinitions().find(def => def.key === item.achievementKey);
+  const visual = getAchievementVisual(item.achievementKey);
+
+  const progress = useMemo(() => {
+    if (!isLocked || !definition?.threshold) return null;
+    let current = 0;
+    if (definition.group === 'places') current = stats.totalStampedStops;
+    else if (definition.group === 'countries') current = stats.uniqueCountries;
+    else if (definition.group === 'completion') current = stats.completedDayCount;
+    return { current: Math.min(current, definition.threshold), total: definition.threshold };
+  }, [definition, isLocked, stats]);
+
+  return (
+    <View style={styles.gridItemWrapper}>
+      <Shadow distance={4} startColor="rgba(0,0,0,0.04)" offset={[0, 2]} style={{ width: '100%' }} containerStyle={{ width: '100%' }}>
+        <View style={[styles.gridCard, isLocked && styles.gridCardLocked, { borderTopColor: isLocked ? theme.colors.border : visual.ring, borderTopWidth: 3 }]}>
+          <View style={[styles.gridIconBox, { backgroundColor: isLocked ? palette.softGray : visual.fill }]}>
+             <Ionicons name={visual.iconName as any} size={24} color={isLocked ? palette.mediumGray : visual.text} />
+          </View>
+          <View style={styles.gridMeta}>
+            <Text style={[styles.gridTitle, isLocked && { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                {(definition?.title || item.achievementKey).toUpperCase()}
+            </Text>
+            {isLocked && progress ? (
+               <View style={styles.gridProgressRow}>
+                  <View style={styles.gridProgressBarBg}>
+                      <View style={[styles.gridProgressBarFill, { width: `${(progress.current / progress.total) * 100}%` }]} />
+                  </View>
+                  <Text style={styles.gridProgressText}>{progress.current}/{progress.total}</Text>
+               </View>
+            ) : !isLocked ? (
+                <Ionicons name="checkmark-circle" size={16} color={theme.colors.success} style={{ marginTop: 4 }} />
+            ) : (
+                <Text style={styles.gridSub}>LOCKED</Text>
+            )}
+          </View>
+        </View>
+      </Shadow>
     </View>
   );
 };
 
+type CarouselMode = 'records' | 'visas';
+
 const PassportScreen = () => {
+  const { profile } = useProfile();
   const [snapshot, setSnapshot] = useState<PassportSnapshot>(EMPTY_SNAPSHOT);
+  const [pendingStops, setPendingStops] = useState<PassportStopTarget[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
+  const [isDossierOpen, setIsDossierOpen] = useState(false);
+  const [mode, setMode] = useState<CarouselMode>('records');
+  const mapRef = useRef<any>(null);
+  const permissionPaused = snapshot.permissionStatus === 'denied';
 
   const loadSnapshot = useCallback(async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
+    if (!isRefresh) setLoading(true);
     setErrorMessage(null);
 
     try {
       const next = await passportService.loadSnapshot();
       setSnapshot(next);
+      
+      try {
+        const activeStopsResult = await passportService.listActiveItineraryStops();
+        setPendingStops(activeStopsResult.stops);
+      } catch {
+        // Non-blocking
+      }
     } catch (error: any) {
       setErrorMessage(error?.message || 'Could not load passport right now.');
     } finally {
       setLoading(false);
-      if (isRefresh) {
-        setRefreshing(false);
-      }
     }
   }, []);
 
@@ -107,7 +167,7 @@ const PassportScreen = () => {
   );
 
   const mappedStamps = useMemo(
-    () => snapshot.stamps.filter(stamp => stamp.lat != null && stamp.lng != null).slice(0, 40),
+    () => snapshot.stamps.filter(stamp => stamp.lat != null && stamp.lng != null),
     [snapshot.stamps],
   );
 
@@ -117,17 +177,71 @@ const PassportScreen = () => {
   );
 
   const lockedAchievements = useMemo(
-    () => listAchievementDefinitions().filter(item => !unlockedKeys.has(item.key)).slice(0, 3),
+    () => listAchievementDefinitions().filter(item => !unlockedKeys.has(item.key)),
     [unlockedKeys],
   );
 
-  const hasStamps = snapshot.stamps.length > 0;
+  const unearnedStops = useMemo(() => {
+    const stampedPlaceIds = new Set(snapshot.stamps.map(s => s.placeId));
+    return pendingStops.filter(stop => !stampedPlaceIds.has(stop.placeId));
+  }, [pendingStops, snapshot.stamps]);
+
+  const combinedVisas = useMemo(() => {
+      const earned = snapshot.achievements.map(a => ({ ...a, isLocked: false }));
+      const locked = lockedAchievements.map(a => ({ id: a.key, achievementKey: a.key, isLocked: true }));
+      return [...earned, ...locked];
+  }, [snapshot.achievements, lockedAchievements]);
+
+  const goToStamp = useCallback((stamp: PassportStamp) => {
+      setIsDossierOpen(false);
+      if (stamp.lat && stamp.lng && mapRef.current) {
+          mapRef.current.animateCamera({
+              center: { latitude: stamp.lat, longitude: stamp.lng },
+              pitch: 0,
+              heading: 0,
+              zoom: 14,
+          }, { duration: 1000 });
+      }
+  }, []);
+
+  const initialMapRegion = useMemo(() => {
+    if (mappedStamps.length > 0 || unearnedStops.length > 0) {
+      const allStamps = [...mappedStamps, ...unearnedStops];
+      const lats = allStamps.map(s => s.lat as number);
+      const lngs = allStamps.map(s => s.lng as number);
+      const minLat = Math.min(...lats);
+      const maxLat = Math.max(...lats);
+      const minLng = Math.min(...lngs);
+      const maxLng = Math.max(...lngs);
+
+      return {
+        latitude: (minLat + maxLat) / 2,
+        longitude: (minLng + maxLng) / 2,
+        latitudeDelta: Math.max((maxLat - minLat) * 1.5, 2),
+        longitudeDelta: Math.max((maxLng - minLng) * 1.5, 2),
+      };
+    }
+    if (profile?.home_lat && profile?.home_lng) {
+      return {
+        latitude: profile.home_lat,
+        longitude: profile.home_lng,
+        latitudeDelta: 20,
+        longitudeDelta: 20,
+      };
+    }
+    return {
+      latitude: 34.0,
+      longitude: -40.0,
+      latitudeDelta: 60,
+      longitudeDelta: 60,
+    };
+  }, [mappedStamps, unearnedStops, profile]);
 
   if (loading) {
     return (
       <View style={styles.centeredState}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.stateTitle}>Loading Passport</Text>
+        <Text style={styles.stateTitle}>AUTHENTICATING JOURNEY...</Text>
       </View>
     );
   }
@@ -136,418 +250,353 @@ const PassportScreen = () => {
     return (
       <View style={styles.centeredState}>
         <Ionicons name="alert-circle-outline" size={44} color={theme.colors.primary} />
-        <Text style={styles.stateTitle}>Could not load passport</Text>
+        <Text style={styles.stateTitle}>IDENTITY VERIFICATION FAILED</Text>
         <Text style={styles.stateSubtitle}>{errorMessage}</Text>
         <TouchableOpacity style={styles.primaryCta} onPress={() => void loadSnapshot(true)}>
-          <Text style={styles.primaryCtaText}>Retry</Text>
+          <Text style={styles.primaryCtaText}>RETRY SYNC</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  if (!hasStamps && snapshot.permissionStatus === 'denied') {
+  if (snapshot.stamps.length === 0 && snapshot.permissionStatus === 'denied') {
     return (
       <View style={styles.centeredState}>
-        <Ionicons name="location-outline" size={44} color={theme.colors.primary} />
-        <Text style={styles.stateTitle}>Auto-Stamp Is Paused</Text>
+        <View style={styles.stateIconCircle}>
+          <Ionicons name="location-outline" size={32} color={theme.colors.primary} />
+        </View>
+        <Text style={styles.stateTitle}>LOCATION SERVICES REQUIRED</Text>
         <Text style={styles.stateSubtitle}>
-          Enable location permission so Travis can stamp stops automatically when you arrive.
+          Travis requires location access to stamp your passport as you explore. Enable permissions to resume tracking.
         </Text>
         <TouchableOpacity
           style={styles.primaryCta}
           onPress={() => {
             void Linking.openSettings();
           }}
-          accessibilityRole="button"
-          accessibilityLabel="Open settings to enable location permission"
         >
-          <Text style={styles.primaryCtaText}>Open Settings</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  if (!hasStamps) {
-    return (
-      <View style={styles.centeredState}>
-        <Ionicons name="map-outline" size={44} color={theme.colors.primary} />
-        <Text style={styles.stateTitle}>No Stamps Yet</Text>
-        <Text style={styles.stateSubtitle}>
-          Reach an itinerary stop and stay nearby for about two minutes to earn your first stamp.
-        </Text>
-        <TouchableOpacity style={styles.primaryCta} onPress={() => void loadSnapshot(true)}>
-          <Text style={styles.primaryCtaText}>Refresh</Text>
+          <Text style={styles.primaryCtaText}>OPEN SYSTEM SETTINGS</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadSnapshot(true)} />}
-    >
-      <View style={styles.header}>
-        <Text style={styles.title}>PASSPORT</Text>
-        <Text style={styles.subtitle}>Automatic stamps and achievements from your real-world journeys.</Text>
-      </View>
-
-      {snapshot.offline && (
-        <View style={styles.offlineBanner}>
-          <Ionicons name="cloud-offline-outline" size={16} color={theme.colors.warning} />
-          <Text style={styles.offlineText}>
-            Offline snapshot {snapshot.offlineSavedAt ? `| saved ${formatStampDate(snapshot.offlineSavedAt)}` : ''}
-          </Text>
-        </View>
-      )}
-
-      <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{snapshot.stats.totalStampedStops}</Text>
-          <Text style={styles.statLabel}>Stamps</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{snapshot.stats.uniqueCities}</Text>
-          <Text style={styles.statLabel}>Cities</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{snapshot.stats.uniqueCountries}</Text>
-          <Text style={styles.statLabel}>Countries</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{snapshot.stats.completedDayCount}</Text>
-          <Text style={styles.statLabel}>Days Done</Text>
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Achievement Stamps</Text>
-        <View style={styles.achievementGrid}>
-          {snapshot.achievements.slice(0, 8).map(item => {
-            const definition = listAchievementDefinitions().find(def => def.key === item.achievementKey);
-            const visual = getStampVisualPreset(item.achievementKey);
-            return (
-              <View key={item.id} style={[styles.achievementCard, { borderColor: visual.ring }]}>
-                <View style={[styles.achievementGlyph, { backgroundColor: visual.fill, borderColor: visual.ring }]}>
-                  <Text style={[styles.achievementGlyphText, { color: visual.text }]}>{visual.glyph}</Text>
-                </View>
-                <Text style={styles.achievementTitle} numberOfLines={2}>
-                  {definition?.title || item.achievementKey}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-        {lockedAchievements.length > 0 && (
-          <View style={styles.lockedPanel}>
-            <Text style={styles.lockedTitle}>Next Up</Text>
-            {lockedAchievements.map(item => (
-              <Text key={item.key} style={styles.lockedItem}>
-                {item.title} - {item.description}
-              </Text>
+    <View style={styles.container}>
+      <View style={StyleSheet.absoluteFillObject}>
+        {MapView ? (
+          <MapView
+            ref={mapRef}
+            style={StyleSheet.absoluteFillObject}
+            customMapStyle={vintageMapStyle}
+            initialRegion={initialMapRegion}
+            showsUserLocation={false}
+            showsMyLocationButton={false}
+            showsCompass={false}
+            pitchEnabled={false}
+          >
+            {mappedStamps.map((stamp, idx) => (
+              <Marker
+                key={stamp.id}
+                coordinate={{
+                  latitude: stamp.lat as number,
+                  longitude: stamp.lng as number,
+                }}
+                onPress={() => {
+                    mapRef.current?.animateToRegion({
+                        latitude: stamp.lat as number,
+                        longitude: stamp.lng as number,
+                        latitudeDelta: 0.05,
+                        longitudeDelta: 0.05,
+                    }, 600);
+                }}
+              >
+                <MotiView from={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', delay: idx * 50 }}>
+                  <View style={styles.customMarker}>
+                    <View style={styles.markerDot} />
+                  </View>
+                </MotiView>
+              </Marker>
             ))}
-          </View>
-        )}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Passport Map</Text>
-        {MapView && mappedStamps.length > 0 ? (
-          <View style={styles.mapContainer}>
-            <MapView
-              style={StyleSheet.absoluteFill}
-              initialRegion={{
-                latitude: mappedStamps[0].lat as number,
-                longitude: mappedStamps[0].lng as number,
-                latitudeDelta: 5,
-                longitudeDelta: 5,
-              }}
-            >
-              {mappedStamps.map(stamp => (
-                <Marker
-                  key={stamp.id}
-                  coordinate={{
-                    latitude: stamp.lat as number,
-                    longitude: stamp.lng as number,
-                  }}
-                  title={stamp.title}
-                  description={stamp.city || 'Stamped stop'}
-                />
-              ))}
-            </MapView>
-          </View>
+            {unearnedStops.map((stop, idx) => (
+              <Marker
+                key={`pending-${stop.placeId}-${idx}`}
+                coordinate={{ latitude: stop.lat, longitude: stop.lng }}
+                opacity={0.5}
+              >
+                <MotiView from={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', delay: (mappedStamps.length + idx) * 50 }}>
+                  <View style={[styles.customMarker, { backgroundColor: 'rgba(26, 26, 26, 0.05)', borderColor: palette.mediumGray, borderWidth: 1 }]}>
+                    <View style={[styles.markerDot, { backgroundColor: palette.mediumGray }]} />
+                  </View>
+                </MotiView>
+              </Marker>
+            ))}
+          </MapView>
         ) : (
           <View style={styles.mapFallback}>
-            <Text style={styles.mapFallbackText}>
-              Map preview unavailable right now. Your stamped stops are listed below.
-            </Text>
+            <Ionicons name="map-outline" size={48} color={palette.mediumGray} />
+            <Text style={styles.mapFallbackText}>MAP OFFLINE</Text>
           </View>
         )}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Recent Stamps</Text>
-        <View style={styles.stampList}>
-          {snapshot.stamps.slice(0, 30).map(stamp => (
-            <StampChip key={stamp.id} stamp={stamp} />
-          ))}
-        </View>
+      <View style={styles.hudContainer} pointerEvents="box-none">
+        <MotiView from={{ opacity: 0, translateY: -20 }} animate={{ opacity: 1, translateY: 0 }} style={styles.topHud}>
+          <Shadow distance={8} startColor="rgba(0,0,0,0.06)" offset={[0, 4]}>
+            <View style={styles.headerPill}>
+              <View style={styles.headerAvatar}><Ionicons name="person" size={18} color={palette.white} /></View>
+              <View>
+                  <Text style={styles.headerTitle}>NOMAD LOG</Text>
+                  <Text style={styles.headerSub}>{profile?.home_city?.toUpperCase() || 'WORLD CITIZEN'}</Text>
+              </View>
+              <View style={styles.headerDivider} />
+              <View style={styles.headerStatBox}>
+                  <Text style={styles.headerStatNum}>{snapshot.stats.totalStampedStops}</Text>
+                  <Text style={styles.headerStatLabel}>STAMPS</Text>
+              </View>
+            </View>
+          </Shadow>
+          {(snapshot.offline || permissionPaused) && (
+            <View style={styles.statusStack}>
+              {snapshot.offline && (
+                <View style={styles.statusPill} accessible accessibilityLabel="Offline snapshot mode">
+                  <Ionicons name="cloud-offline-outline" size={14} color="#8A4A00" />
+                  <Text style={styles.statusText}>
+                    OFFLINE SNAPSHOT{snapshot.offlineSavedAt ? ` | ${formatStampDate(snapshot.offlineSavedAt)}` : ''}
+                  </Text>
+                </View>
+              )}
+              {permissionPaused && (
+                <View style={styles.statusPillMuted}>
+                  <Ionicons name="location-outline" size={14} color={theme.colors.textSecondary} />
+                  <Text style={styles.statusMutedText}>AUTO-STAMP PAUSED</Text>
+                  <TouchableOpacity
+                    style={styles.statusAction}
+                    onPress={() => {
+                      void Linking.openSettings();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open settings to enable location permission"
+                  >
+                    <Text style={styles.statusActionText}>SETTINGS</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+        </MotiView>
+
+        <MotiView from={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 400 }} style={styles.bottomHud}>
+           <Shadow distance={12} startColor="rgba(0,0,0,0.15)" offset={[0, 6]}>
+              <TouchableOpacity style={styles.fab} onPress={() => setIsDossierOpen(true)} activeOpacity={0.9}>
+                 <Ionicons name="journal" size={24} color={palette.white} />
+                 <Text style={styles.fabText}>VIEW PASSPORT DOSSIER</Text>
+              </TouchableOpacity>
+           </Shadow>
+        </MotiView>
       </View>
-    </ScrollView>
+
+      <AnimatePresence>
+        {isDossierOpen && (
+          <MotiView
+            key="dossier-panel"
+            from={{ translateY: height }}
+            animate={{ translateY: height * 0.15 }}
+            exit={{ translateY: height }}
+            transition={{ type: 'spring', damping: 45, stiffness: 120 }}
+            style={styles.dossierOverlay}
+          >
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(249, 248, 246, 0.98)' }]} />
+
+            <View style={styles.dossierContent}>
+                <View style={styles.dossierHeader}>
+                    <View style={styles.dossierHeaderTop}>
+                        <Text style={styles.dossierTitle}>TRAVELER DOSSIER</Text>
+                        <TouchableOpacity style={styles.closeBtn} onPress={() => setIsDossierOpen(false)}>
+                            <Ionicons name="close" size={24} color={theme.colors.textPrimary} />
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.toggleTrack}>
+                        <TouchableOpacity 
+                            style={[styles.toggleBtn, mode === 'records' && styles.toggleBtnActive]}
+                            onPress={() => setMode('records')}
+                        >
+                            <Text style={[styles.toggleText, mode === 'records' && styles.toggleTextActive]}>LOG ENTRIES</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={[styles.toggleBtn, mode === 'visas' && styles.toggleBtnActive]}
+                            onPress={() => setMode('visas')}
+                        >
+                            <Text style={[styles.toggleText, mode === 'visas' && styles.toggleTextActive]}>VISA BOARD</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                <View style={{ flex: 1 }}>
+                    {mode === 'records' ? (
+                        <FlatList
+                            key="records-grid"
+                            data={snapshot.stamps}
+                            keyExtractor={item => item.id}
+                            numColumns={2}
+                            columnWrapperStyle={styles.columnWrapper}
+                            renderItem={({ item }) => <StampGridItem stamp={item} onPress={() => goToStamp(item)} />}
+                            contentContainerStyle={styles.listPadding}
+                            showsVerticalScrollIndicator={false}
+                            ListEmptyComponent={
+                                <View style={styles.emptyDossier}>
+                                    <Ionicons name="compass-outline" size={48} color={palette.mediumGray} />
+                                    <Text style={styles.emptyTitle}>NO ENTRIES RECORDED</Text>
+                                    <Text style={styles.emptyDesc}>Visit your first itinerary stop to begin building your travel log.</Text>
+                                </View>
+                            }
+                        />
+                    ) : (
+                        <FlatList
+                            key="visas-grid"
+                            data={combinedVisas}
+                            keyExtractor={item => item.id}
+                            numColumns={2}
+                            columnWrapperStyle={styles.columnWrapper}
+                            renderItem={({ item }) => <VisaGridItem item={item} isLocked={item.isLocked} stats={snapshot.stats} />}
+                            contentContainerStyle={styles.listPadding}
+                            showsVerticalScrollIndicator={false}
+                        />
+                    )}
+                </View>
+            </View>
+          </MotiView>
+        )}
+      </AnimatePresence>
+    </View>
   );
 };
 
+const vintageMapStyle = [
+  { "elementType": "geometry", "stylers": [{ "color": "#f5f5f5" }] },
+  { "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
+  { "elementType": "labels.text.fill", "stylers": [{ "color": "#616161" }] },
+  { "elementType": "labels.text.stroke", "stylers": [{ "color": "#f5f5f5" }] },
+  { "featureType": "poi", "elementType": "geometry", "stylers": [{ "color": "#eeeeee" }] },
+  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#ffffff" }] },
+  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#e9e9e9" }] }
+];
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  content: {
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.lg,
-    paddingBottom: theme.spacing.huge,
-    gap: theme.spacing.md,
-  },
-  centeredState: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.lg,
-  },
-  stateTitle: {
-    marginTop: 14,
-    color: theme.colors.textPrimary,
-    fontSize: 24,
-    fontFamily: theme.typography.fonts.black,
-    textAlign: 'center',
-  },
-  stateSubtitle: {
-    marginTop: 8,
-    color: theme.colors.textSecondary,
-    fontSize: 15,
-    textAlign: 'center',
-    lineHeight: 22,
-    fontFamily: theme.typography.fonts.narrative,
-  },
-  primaryCta: {
-    marginTop: 28,
-    minHeight: 44,
-    paddingHorizontal: 22,
-    borderRadius: 22,
-    backgroundColor: theme.colors.textPrimary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryCtaText: {
-    color: '#FFF',
-    fontSize: 12,
-    letterSpacing: 1,
-    fontFamily: theme.typography.fonts.black,
-  },
-  header: {
-    gap: 6,
-  },
-  title: {
-    color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.black,
-    fontSize: 34,
-    letterSpacing: -0.6,
-  },
-  subtitle: {
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fonts.narrative,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  offlineBanner: {
-    minHeight: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(201, 122, 0, 0.28)',
-    backgroundColor: 'rgba(249, 168, 37, 0.1)',
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  centeredState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
+  stateTitle: { color: theme.colors.textPrimary, fontSize: 18, fontFamily: theme.typography.fonts.black, letterSpacing: 1 },
+  stateSubtitle: { marginTop: 12, color: theme.colors.textSecondary, fontSize: 14, textAlign: 'center', lineHeight: 20, fontFamily: theme.typography.fonts.narrative },
+  stateIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: palette.softGray, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  primaryCta: { marginTop: 32, height: 50, paddingHorizontal: 24, borderRadius: 12, backgroundColor: theme.colors.textPrimary, alignItems: 'center', justifyContent: 'center' },
+  primaryCtaText: { color: '#FFF', fontSize: 12, letterSpacing: 2, fontFamily: theme.typography.fonts.black },
+  mapFallback: { flex: 1, backgroundColor: palette.paper, alignItems: 'center', justifyContent: 'center' },
+  mapFallbackText: { marginTop: 12, fontFamily: theme.typography.fonts.technicalBold, fontSize: 12, color: palette.mediumGray, letterSpacing: 2 },
+  customMarker: { width: 16, height: 16, borderRadius: 8, backgroundColor: 'rgba(26, 26, 26, 0.15)', alignItems: 'center', justifyContent: 'center' },
+  markerDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.primary },
+  
+  hudContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between', paddingBottom: Platform.OS === 'ios' ? 100 : 80 },
+  topHud: { paddingTop: Platform.OS === 'ios' ? 120 : 100, paddingHorizontal: 20, alignItems: 'center' },
+  headerPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: palette.white, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 100, gap: 10 },
+  headerAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontFamily: theme.typography.fonts.black, fontSize: 11, color: theme.colors.textPrimary, letterSpacing: 1 },
+  headerSub: { fontFamily: theme.typography.fonts.technicalBold, fontSize: 8, color: theme.colors.textSecondary, letterSpacing: 0.5 },
+  headerDivider: { width: 1, height: 20, backgroundColor: theme.colors.border, marginHorizontal: 4 },
+  headerStatBox: { alignItems: 'flex-end' },
+  headerStatNum: { fontFamily: theme.typography.fonts.black, fontSize: 14, color: theme.colors.textPrimary },
+  headerStatLabel: { fontFamily: theme.typography.fonts.technicalBold, fontSize: 7, color: theme.colors.textSecondary, letterSpacing: 1 },
+  statusStack: { marginTop: 10, width: '100%', gap: 8, alignItems: 'center' },
+  statusPill: {
+    minHeight: 32,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(249, 168, 37, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(138, 74, 0, 0.25)',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  offlineText: {
+  statusText: {
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 9,
     color: '#8A4A00',
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 11,
-    letterSpacing: 0.4,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  statCard: {
-    width: '48%',
-    minHeight: 76,
-    borderRadius: 16,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    justifyContent: 'center',
-  },
-  statValue: {
-    color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.black,
-    fontSize: 24,
-  },
-  statLabel: {
-    marginTop: 2,
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 10,
     letterSpacing: 0.9,
-    textTransform: 'uppercase',
   },
-  section: {
-    borderRadius: 20,
-    backgroundColor: theme.colors.surface,
+  statusPillMuted: {
+    minHeight: 36,
+    paddingLeft: 12,
+    paddingRight: 6,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.96)',
     borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: 14,
-    gap: 12,
-  },
-  sectionTitle: {
-    color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.black,
-    fontSize: 16,
-    letterSpacing: 0.3,
-  },
-  achievementGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  achievementCard: {
-    width: '48%',
-    minHeight: 110,
-    borderRadius: 14,
-    borderWidth: 1,
-    backgroundColor: '#FFF',
-    padding: 10,
-    justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
   },
-  achievementGlyph: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  achievementGlyphText: {
-    fontSize: 16,
-    fontFamily: theme.typography.fonts.black,
-  },
-  achievementTitle: {
-    color: theme.colors.textPrimary,
+  statusMutedText: {
     fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 11,
-    textAlign: 'center',
-    letterSpacing: 0.3,
-  },
-  lockedPanel: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surfaceElevated,
-    padding: 10,
-    gap: 6,
-  },
-  lockedTitle: {
-    color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 11,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
-  lockedItem: {
+    fontSize: 9,
     color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fonts.narrative,
-    fontSize: 13,
-    lineHeight: 18,
+    letterSpacing: 0.9,
   },
-  mapContainer: {
-    height: 220,
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  mapFallback: {
-    minHeight: 96,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surfaceElevated,
-  },
-  mapFallbackText: {
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fonts.narrative,
-    fontSize: 13,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  stampList: {
-    gap: 8,
-  },
-  stampChip: {
-    minHeight: 74,
-    borderRadius: 14,
-    borderWidth: 1,
+  statusAction: {
+    minHeight: 24,
     paddingHorizontal: 10,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  stampGlyph: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 2,
+    borderRadius: 999,
+    backgroundColor: palette.softGray,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFF',
   },
-  stampGlyphText: {
+  statusActionText: {
     fontFamily: theme.typography.fonts.black,
-    fontSize: 14,
-  },
-  stampMeta: {
-    flex: 1,
-    gap: 2,
-  },
-  stampTitle: {
+    fontSize: 8,
     color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 13,
+    letterSpacing: 1,
   },
-  stampSubtitle: {
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 10,
-    letterSpacing: 0.6,
-  },
-  stampDate: {
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fonts.narrative,
-    fontSize: 12,
-  },
+  
+  bottomHud: { alignItems: 'center', paddingHorizontal: 20 },
+  fab: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.textPrimary, paddingHorizontal: 20, height: 56, borderRadius: 28, gap: 12 },
+  fabText: { color: palette.white, fontFamily: theme.typography.fonts.black, fontSize: 12, letterSpacing: 1 },
+
+  dossierOverlay: { position: 'absolute', left: 0, right: 0, bottom: 0, height: height * 0.85, zIndex: 100, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
+  dossierContent: { flex: 1, paddingTop: 10 },
+  dossierHeader: { paddingHorizontal: 20, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+  dossierHeaderTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  dossierTitle: { fontFamily: theme.typography.fonts.black, fontSize: 20, color: theme.colors.textPrimary, letterSpacing: 2 },
+  closeBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.softGray, borderRadius: 22 },
+  
+  toggleTrack: { flexDirection: 'row', backgroundColor: palette.softGray, borderRadius: 12, padding: 4 },
+  toggleBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
+  toggleBtnActive: { backgroundColor: palette.white },
+  toggleText: { fontFamily: theme.typography.fonts.technicalBold, fontSize: 10, color: theme.colors.textSecondary, letterSpacing: 1 },
+  toggleTextActive: { color: theme.colors.textPrimary },
+  
+  columnWrapper: { justifyContent: 'space-between', marginBottom: 12 },
+  listPadding: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 120 },
+  
+  gridItemWrapper: { width: (width - 52) / 2 }, 
+  gridCard: { backgroundColor: palette.white, padding: 12, borderRadius: 12, alignItems: 'center', minHeight: 140 },
+  gridCardLocked: { backgroundColor: 'rgba(0,0,0,0.02)', opacity: 0.8 },
+  gridIconBox: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  gridIconText: { fontSize: 20, fontFamily: theme.typography.fonts.black },
+  gridMeta: { alignItems: 'center', width: '100%' },
+  gridTitle: { fontFamily: theme.typography.fonts.black, fontSize: 11, color: theme.colors.textPrimary, textAlign: 'center', marginBottom: 4 },
+  gridSub: { fontFamily: theme.typography.fonts.technicalBold, fontSize: 9, color: theme.colors.textSecondary, marginTop: 2, textAlign: 'center' },
+  gridDate: { fontFamily: theme.typography.fonts.technicalBold, fontSize: 8, color: theme.colors.mediumGray, marginTop: 4, textAlign: 'center' },
+  
+  gridProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, width: '100%' },
+  gridProgressBarBg: { flex: 1, height: 4, backgroundColor: palette.softGray, borderRadius: 2, overflow: 'hidden' },
+  gridProgressBarFill: { height: '100%', backgroundColor: theme.colors.primary },
+  gridProgressText: { fontSize: 7, fontFamily: theme.typography.fonts.technicalBold, color: theme.colors.textSecondary },
+  
+  emptyDossier: { paddingVertical: 100, alignItems: 'center', justifyContent: 'center' },
+  emptyTitle: { fontFamily: theme.typography.fonts.black, fontSize: 14, color: theme.colors.textPrimary, letterSpacing: 1, marginTop: 16 },
+  emptyDesc: { fontFamily: theme.typography.fonts.narrative, fontSize: 11, color: theme.colors.textSecondary, textAlign: 'center', marginTop: 8, paddingHorizontal: 40 }
 });
 
 export default PassportScreen;

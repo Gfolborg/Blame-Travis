@@ -73,6 +73,7 @@ Required for every touched screen:
 - returning to Journeys via tab switch refreshes in-place after first load (no full-screen flicker)
 - passport auto-stamping runs foreground-only in MVP; stamp automatically when user remains within ~500ft of an active-itinerary stop for ~120s
 - passport experience cannot require manual "stamp this place" actions
+- profile v1 prioritizes core controls only (account, notifications, permissions, privacy); do not surface Travis tone/default controls in the primary profile surface
 
 Interaction requirements:
 - clear primary action

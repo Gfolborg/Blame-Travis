@@ -103,6 +103,7 @@ Travis remains the host voice and recommendation narrator.
 - Enforce a soft cap of 5 non-archived itineraries; only surface guidance when the user attempts to create a 6th itinerary.
 - Passport v1 uses foreground auto-stamping only: when a traveler stays within roughly 500ft of an active-itinerary stop for about 120 seconds, the stop is stamped automatically (no manual stamp action required).
 - Passport stamp art currently uses deterministic placeholder ink badges; final branded stamp assets should follow `docs/sprint-5/passport-stamp-art-direction.md`.
+- Profile v1 prioritizes core controls only (account, notifications, permissions, privacy) and intentionally excludes Travis tone/default controls from the main profile surface.
 
 ## Monetization Direction
 

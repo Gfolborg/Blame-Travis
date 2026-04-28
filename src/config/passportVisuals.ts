@@ -7,6 +7,10 @@ export interface StampVisualPreset {
   text: string;
 }
 
+export interface AchievementVisualPreset extends StampVisualPreset {
+  iconName: any; // Ionicons name
+}
+
 export const STAMP_VISUAL_PRESETS: StampVisualPreset[] = [
   {
     id: 'ink_compass',
@@ -56,4 +60,18 @@ export const getStampVisualPreset = (key: string): StampVisualPreset => {
   }
   const index = hashKey(key) % STAMP_VISUAL_PRESETS.length;
   return STAMP_VISUAL_PRESETS[index];
+};
+
+export const getAchievementVisual = (key: string): AchievementVisualPreset => {
+  const base = getStampVisualPreset(key);
+  
+  let iconName = 'ribbon-outline';
+  
+  if (key === 'first_stamp') iconName = 'footsteps-outline';
+  else if (key === 'first_abroad') iconName = 'airplane-outline';
+  else if (key.startsWith('places_')) iconName = 'location-outline';
+  else if (key.startsWith('countries_')) iconName = 'globe-outline';
+  else if (key.startsWith('days_completed_')) iconName = 'calendar-outline';
+
+  return { ...base, iconName };
 };
