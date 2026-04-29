@@ -10,6 +10,7 @@
     "lint": "eslint src",
     "policy:lint": "node scripts/policy-lint.cjs",
     "ingest:activities": "node scripts/ingest-activities.cjs",
+    "passport:upload-stamps": "node scripts/upload-passport-stamps.cjs",
     "qa:seed:booking-lane": "node scripts/qa-booking-lane.cjs --mode seed",
     "qa:cleanup:booking-lane": "node scripts/qa-booking-lane.cjs --mode cleanup",
     "qa:purge:booking-lane": "node scripts/qa-booking-lane.cjs --mode purge --confirm-purge yes",

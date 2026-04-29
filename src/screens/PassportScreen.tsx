@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Linking,
   ScrollView,
   StyleSheet,
@@ -21,9 +22,11 @@ import { listAchievementDefinitions, passportService } from '../services/passpor
 import {
   PassportAchievement,
   PassportAchievementDefinition,
+  PassportLocationPermissionStatus,
   PassportSnapshot,
   PassportStamp,
 } from '../types/passport';
+import { stampArtService, StampArtManifestEntry } from '../services/stampArt';
 import { theme, palette } from '../theme';
 import { useProfile } from '../hooks/useProfile';
 import { MainTabParamList, RootStackParamList } from '../types/navigation';
@@ -238,11 +241,20 @@ const PlaceStampCard = ({
   );
 };
 
-const AchievementStampTile = ({ item }: { item: ProgressStampItem }) => {
+const AchievementStampTile = ({
+  item,
+  manifestEntry,
+}: {
+  item: ProgressStampItem;
+  manifestEntry?: StampArtManifestEntry;
+}) => {
   const visual = getAchievementVisual(item.key);
-  const progressWidth = item.total > 0 ? `${Math.min(100, (item.current / item.total) * 100)}%` : '0%';
+  const progressWidth = item.total > 0 ? (`${Math.min(100, (item.current / item.total) * 100)}%` as const) : '0%';
   const groupLabel = getAchievementGroupLabel(item.key);
   const serial = getAchievementSerial(item.key);
+  const artUri = item.isEarned
+    ? manifestEntry?.imageUrl ?? null
+    : manifestEntry?.lockedImageUrl ?? manifestEntry?.imageUrl ?? null;
 
   return (
     <View style={styles.stampTile}>
@@ -264,12 +276,21 @@ const AchievementStampTile = ({ item }: { item: ProgressStampItem }) => {
       </View>
 
       <View style={[styles.stampTileArtwork, { backgroundColor: visual.fill, borderColor: visual.ring }]}>
-        <View style={styles.stampTileArtworkFrame}>
-          <View style={[styles.stampTileSeal, { borderColor: visual.ring }]}>
-            <Ionicons name={visual.iconName as any} size={26} color={visual.text} />
+        {artUri ? (
+          <Image
+            source={{ uri: artUri }}
+            style={[styles.stampTileImage, !item.isEarned ? styles.stampTileImageLocked : null]}
+            accessibilityLabel={`${item.title} stamp art`}
+            resizeMode="contain"
+          />
+        ) : (
+          <View style={styles.stampTileArtworkFrame}>
+            <View style={[styles.stampTileSeal, { borderColor: visual.ring }]}>
+              <Ionicons name={visual.iconName as any} size={26} color={visual.text} />
+            </View>
+            <Text style={[styles.stampTilePlaceholder, { color: visual.text }]}>Stamp Art Placeholder</Text>
           </View>
-          <Text style={[styles.stampTilePlaceholder, { color: visual.text }]}>Stamp Art Placeholder</Text>
-        </View>
+        )}
       </View>
 
       <View style={styles.stampTileBody}>
@@ -342,6 +363,7 @@ const PassportScreen = () => {
   const rootNavigation = navigation.getParent<NativeStackNavigationProp<RootStackParamList>>();
   const { profile, session, loading: profileLoading } = useProfile();
   const [snapshot, setSnapshot] = useState<PassportSnapshot>(EMPTY_SNAPSHOT);
+  const [manifest, setManifest] = useState<Record<string, StampArtManifestEntry>>({});
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<PassportTabKey>('stamps');
@@ -371,8 +393,10 @@ const PassportScreen = () => {
     }
     setErrorMessage(null);
 
+    void stampArtService.fetchManifest(isRefresh).then(setManifest).catch(() => {});
+
     if (!isSignedIn) {
-      const permissionStatus = await passportService.getLocationPermissionStatus().catch(() => 'undetermined');
+      const permissionStatus = (await passportService.getLocationPermissionStatus().catch(() => 'undetermined')) as PassportLocationPermissionStatus;
       setSnapshot({
         ...EMPTY_SNAPSHOT,
         permissionStatus,
@@ -386,7 +410,7 @@ const PassportScreen = () => {
       const next = await passportService.loadSnapshot();
       setSnapshot(next);
     } catch (error: any) {
-      const permissionStatus = await passportService.getLocationPermissionStatus().catch(() => 'undetermined');
+      const permissionStatus = (await passportService.getLocationPermissionStatus().catch(() => 'undetermined')) as PassportLocationPermissionStatus;
       setSnapshot({
         ...EMPTY_SNAPSHOT,
         permissionStatus,
@@ -700,7 +724,7 @@ const PassportScreen = () => {
             <Text style={styles.subsectionLabel}>Received</Text>
             <View style={styles.stampGrid}>
               {earnedProgressStampItems.map(item => (
-                <AchievementStampTile key={item.key} item={item} />
+                <AchievementStampTile key={item.key} item={item} manifestEntry={manifest[item.key]} />
               ))}
             </View>
           </>
@@ -718,7 +742,7 @@ const PassportScreen = () => {
             <Text style={styles.subsectionLabel}>In range</Text>
             <View style={styles.stampGrid}>
               {lockedProgressStampItems.map(item => (
-                <AchievementStampTile key={item.key} item={item} />
+                <AchievementStampTile key={item.key} item={item} manifestEntry={manifest[item.key]} />
               ))}
             </View>
           </>
@@ -1486,6 +1510,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 10,
     paddingVertical: 8,
+  },
+  stampTileImage: {
+    width: '100%',
+    height: '100%',
+  },
+  stampTileImageLocked: {
+    opacity: 0.4,
   },
   stampTileSeal: {
     width: 52,

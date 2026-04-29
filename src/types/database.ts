@@ -833,6 +833,36 @@ export type Database = {
           },
         ]
       }
+      passport_stamp_art_manifest: {
+        Row: {
+          achievement_key: string
+          created_at: string
+          locked_storage_path: string | null
+          storage_path: string
+          theme_metadata: Json
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          achievement_key: string
+          created_at?: string
+          locked_storage_path?: string | null
+          storage_path: string
+          theme_metadata?: Json
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          achievement_key?: string
+          created_at?: string
+          locked_storage_path?: string | null
+          storage_path?: string
+          theme_metadata?: Json
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           budget_default: number | null
