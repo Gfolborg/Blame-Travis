@@ -32,7 +32,6 @@ export const PassportAutoStampCoordinator = () => {
   const dwellCandidateRef = useRef<DwellCandidate | null>(null);
   const lastStampAttemptByPlaceRef = useRef<Map<string, number>>(new Map());
   const stampingRef = useRef(false);
-  const permissionDeniedNoticeShownRef = useRef(false);
 
   const refreshActiveStops = useCallback(async () => {
     try {
@@ -170,20 +169,12 @@ export const PassportAutoStampCoordinator = () => {
 
       if (status !== 'granted') {
         await passportService.setLocationPermissionStatus('denied');
-        if (!permissionDeniedNoticeShownRef.current) {
-          permissionDeniedNoticeShownRef.current = true;
-          showNotice({
-            title: 'PASSPORT PAUSED',
-            message: "Travis: 'Location permission is off, so auto-stamps are paused.'",
-            type: 'warning',
-            duration: 3200,
-          });
-        }
+        // Keep startup quiet when location is denied. The UI surfaces inline guidance
+        // and users can enable permission from settings when they need auto-stamping.
         return;
       }
 
       await passportService.setLocationPermissionStatus('granted');
-      permissionDeniedNoticeShownRef.current = false;
 
       if (!watchRef.current) {
         watchRef.current = await Location.watchPositionAsync(

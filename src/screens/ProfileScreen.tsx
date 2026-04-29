@@ -1,28 +1,45 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Animated,
+  Easing,
   Linking,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
+import { useNavigation } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MotiView } from 'moti';
 
+import { CompassRose } from '../components/CompassRose';
+import { TopographicSketch } from '../components/TopographicSketch';
+import { TravisSignal } from '../components/TravisSignal';
 import { useNotice } from '../components/TravisNotice';
 import { useProfile } from '../hooks/useProfile';
 import { notificationsService } from '../services/notifications';
 import { passportService } from '../services/passport';
-import { theme } from '../theme';
+import { theme, palette } from '../theme';
+import { MainTabParamList, RootStackParamList } from '../types/navigation';
+
+type TabNavigationProp = BottomTabNavigationProp<MainTabParamList, 'Profile'>;
 
 type PermissionState = 'granted' | 'denied' | 'undetermined' | 'unknown';
+
+type IdentityChipItem = {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+};
 
 const mapPermissionState = (status?: string): PermissionState => {
   if (status === 'granted') return 'granted';
@@ -34,18 +51,106 @@ const mapPermissionState = (status?: string): PermissionState => {
 const toPermissionLabel = (value: PermissionState): string => {
   if (value === 'granted') return 'Granted';
   if (value === 'denied') return 'Denied';
-  if (value === 'undetermined') return 'Not Requested';
+  if (value === 'undetermined') return 'Pending';
   return 'Unavailable';
 };
 
-const StatChip: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <View style={styles.statChip}>
-    <Text style={styles.statValue}>{value}</Text>
-    <Text style={styles.statLabel}>{label}</Text>
+const formatTransportMode = (value?: string | null): string | null => {
+  if (!value) return null;
+  if (value === 'driving') return 'By car';
+  if (value === 'walking') return 'On foot';
+  if (value === 'transit') return 'Transit';
+  return value.replace(/_/g, ' ');
+};
+
+const formatBudgetDefault = (value?: number | null): string | null => {
+  if (value == null) return null;
+  return `Budget ${value}`;
+};
+
+const formatTimeDefault = (value?: number | null): string | null => {
+  if (value == null) return null;
+  return `${value} min`;
+};
+
+const formatSpontaneity = (value?: string | null): string | null => {
+  if (!value) return null;
+  return value
+    .split('_')
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+};
+
+const buildIdentityChips = (profile: ReturnType<typeof useProfile>['profile']): IdentityChipItem[] => {
+  if (!profile) return [];
+
+  const items: IdentityChipItem[] = [];
+  const transportMode = formatTransportMode(profile.transport_mode);
+  const budgetDefault = formatBudgetDefault(profile.budget_default);
+  const spontaneity = formatSpontaneity(profile.spontaneity_level);
+  const timeDefault = formatTimeDefault(profile.time_default);
+
+  if (transportMode) {
+    items.push({ icon: 'navigate-outline', label: 'Moves by', value: transportMode });
+  }
+
+  if (budgetDefault) {
+    items.push({ icon: 'wallet-outline', label: 'Budget', value: budgetDefault });
+  }
+
+  if (spontaneity) {
+    items.push({ icon: 'sparkles-outline', label: 'Pace', value: spontaneity });
+  }
+
+  if (timeDefault) {
+    items.push({ icon: 'time-outline', label: 'Window', value: timeDefault });
+  }
+
+  return items;
+};
+
+const ProfileStat = ({ label, value }: { label: string; value: string }) => (
+  <View style={styles.heroStat}>
+    <Text style={styles.heroStatValue}>{value}</Text>
+    <Text style={styles.heroStatLabel}>{label}</Text>
   </View>
 );
 
+const IdentityChip = ({ item }: { item: IdentityChipItem }) => (
+  <View style={styles.identityChip}>
+    <View style={styles.identityChipIcon}>
+      <Ionicons name={item.icon} size={16} color={palette.ink} />
+    </View>
+    <View style={styles.identityChipCopy}>
+      <Text style={styles.identityChipLabel}>{item.label}</Text>
+      <Text style={styles.identityChipValue}>{item.value}</Text>
+    </View>
+  </View>
+);
+
+const SectionCard = ({
+  eyebrow,
+  title,
+  description,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) => (
+  <View style={styles.sectionCard}>
+    <Text style={styles.sectionEyebrow}>{eyebrow}</Text>
+    <Text style={styles.sectionTitle}>{title}</Text>
+    {description ? <Text style={styles.sectionDescription}>{description}</Text> : null}
+    <View style={styles.sectionBody}>{children}</View>
+  </View>
+);
+
+const Divider = () => <View style={styles.divider} />;
+
 const ProfileScreen = () => {
+  const navigation = useNavigation<TabNavigationProp>();
   const { profile, session, updateProfile, loading, error, refreshProfile, signOut } = useProfile();
   const { showNotice } = useNotice();
 
@@ -53,20 +158,29 @@ const ProfileScreen = () => {
   const [signingOut, setSigningOut] = useState(false);
   const [notificationsPermission, setNotificationsPermission] = useState<PermissionState>('unknown');
   const [locationPermission, setLocationPermission] = useState<PermissionState>('unknown');
-  const [permissionRefreshPending, setPermissionRefreshPending] = useState(false);
   const [passportStats, setPassportStats] = useState<{ stamps: string; countries: string }>({
     stamps: '--',
     countries: '--',
   });
   const [passportOffline, setPassportOffline] = useState(false);
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  const [cityViewportWidth, setCityViewportWidth] = useState(0);
+  const [cityTextWidth, setCityTextWidth] = useState(0);
 
   const isGuest = !session?.user?.id || !profile;
   const notificationsEnabled = profile?.notifications_enabled ?? false;
-  const profileEmail = session?.user?.email || 'Not available';
+  const profileEmail = session?.user?.email || 'No email on file';
   const writesDisabled = isGuest || passportOffline || savingNotifications || signingOut;
+  const identityChips = buildIdentityChips(profile);
+  const homeCity = profile?.home_city || 'Open road';
+  const homeCityLabel = homeCity.split(',')[0].toUpperCase();
+  const rootNavigation = navigation.getParent<NativeStackNavigationProp<RootStackParamList>>();
+  const cityMarqueeOffset = useRef(new Animated.Value(0)).current;
+  const cityMarqueeRunning = useRef(false);
+  const cityMarqueeAnimation = useRef<Animated.CompositeAnimation | null>(null);
+  const cityRenderWidth = cityTextWidth > 0 ? cityTextWidth : 0;
 
   const refreshPermissions = useCallback(async () => {
-    setPermissionRefreshPending(true);
     try {
       const [notificationResult, locationResult] = await Promise.all([
         Notifications.getPermissionsAsync(),
@@ -78,10 +192,14 @@ const ProfileScreen = () => {
       if (mappedLocation !== 'unknown') {
         await passportService.setLocationPermissionStatus(mappedLocation);
       }
-    } finally {
-      setPermissionRefreshPending(false);
+    } catch (permissionError: any) {
+      showNotice({
+        title: 'Permissions unavailable',
+        message: permissionError?.message || 'Could not read current permission settings.',
+        type: 'warning',
+      });
     }
-  }, []);
+  }, [showNotice]);
 
   const refreshPassportStats = useCallback(async () => {
     try {
@@ -103,18 +221,118 @@ const ProfileScreen = () => {
     void refreshPassportStats();
   }, [loading, refreshPassportStats, refreshPermissions]);
 
-  const permissionStatusTone = useMemo(() => {
-    if (notificationsPermission === 'denied' || locationPermission === 'denied') return styles.badgeWarning;
-    if (notificationsPermission === 'granted' && locationPermission === 'granted') return styles.badgeSuccess;
-    return styles.badgeNeutral;
-  }, [locationPermission, notificationsPermission]);
+  useEffect(() => {
+    let active = true;
+
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(enabled => {
+        if (active) {
+          setReduceMotionEnabled(enabled);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setReduceMotionEnabled(false);
+        }
+      });
+
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', enabled => {
+      setReduceMotionEnabled(enabled);
+    });
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+
+  const cityMarqueeDistance = Math.max(0, cityTextWidth - cityViewportWidth);
+  const cityShouldMarquee = cityViewportWidth > 0 && cityMarqueeDistance > 12;
+
+  const stopCityMarquee = useCallback(() => {
+    if (cityMarqueeAnimation.current) {
+      cityMarqueeAnimation.current.stop();
+      cityMarqueeAnimation.current = null;
+    }
+    cityMarqueeOffset.stopAnimation();
+    cityMarqueeOffset.setValue(0);
+    cityMarqueeRunning.current = false;
+  }, [cityMarqueeOffset]);
+
+  const runCityMarquee = useCallback(() => {
+    if (!cityShouldMarquee || cityMarqueeDistance <= 0) {
+      stopCityMarquee();
+      return;
+    }
+
+    if (cityMarqueeRunning.current) {
+      return;
+    }
+
+    cityMarqueeRunning.current = true;
+    const travelDistance = cityMarqueeDistance;
+    const forwardDuration = Math.min(28000, Math.max(6500, Math.round((travelDistance / 12) * 1000)));
+
+    cityMarqueeAnimation.current = Animated.loop(
+      Animated.sequence([
+        Animated.delay(700),
+        Animated.timing(cityMarqueeOffset, {
+          toValue: -travelDistance,
+          duration: forwardDuration,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.delay(2200),
+        Animated.timing(cityMarqueeOffset, {
+          toValue: 0,
+          duration: 0,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ]),
+      { resetBeforeIteration: false },
+    );
+
+    cityMarqueeAnimation.current.start(({ finished }) => {
+      if (!finished) {
+        cityMarqueeRunning.current = false;
+      }
+    });
+  }, [cityMarqueeDistance, cityMarqueeOffset, cityShouldMarquee, stopCityMarquee]);
+
+  useEffect(() => {
+    setCityTextWidth(0);
+  }, [homeCityLabel]);
+
+  useEffect(() => {
+    if (cityShouldMarquee) {
+      runCityMarquee();
+      return;
+    }
+
+    stopCityMarquee();
+  }, [cityShouldMarquee, runCityMarquee, stopCityMarquee]);
+
+  useEffect(() => {
+    return () => {
+      stopCityMarquee();
+    };
+  }, [stopCityMarquee]);
+
+  const handleCityMeasured = useCallback((width: number) => {
+    if (!Number.isFinite(width) || width <= 0) {
+      return;
+    }
+    const rounded = Math.ceil(width);
+    setCityTextWidth(current => (current === rounded ? current : rounded));
+  }, []);
 
   const handleToggleNotifications = async (nextValue: boolean) => {
     if (!profile?.id) return;
     if (passportOffline) {
       showNotice({
-        title: 'OFFLINE MODE',
-        message: 'Settings edits are paused until your connection stabilizes.',
+        title: 'You are offline',
+        message: 'Reconnect to change notification settings.',
         type: 'warning',
         duration: 3200,
       });
@@ -129,24 +347,20 @@ const ProfileScreen = () => {
       } else {
         await notificationsService.disableNotifications(profile.id);
       }
-      AccessibilityInfo.announceForAccessibility(
-        `Notifications ${nextValue ? 'enabled' : 'disabled'}`,
-      );
+      AccessibilityInfo.announceForAccessibility(`Notifications ${nextValue ? 'enabled' : 'disabled'}`);
       showNotice({
-        title: nextValue ? 'NOTIFICATIONS ENABLED' : 'QUIET MODE ENABLED',
+        title: nextValue ? 'Notifications enabled' : 'Notifications paused',
         message: nextValue
-          ? 'Travis: I will keep itinerary timing and follow-ups on your radar.'
-          : 'Travis: Quiet mode is active. I will stay in the background.',
+          ? 'Travis will nudge you when your itinerary needs attention.'
+          : 'Travis will stay quiet until you turn alerts back on.',
         type: nextValue ? 'success' : 'info',
         duration: 3200,
       });
     } catch (toggleError: any) {
-      AccessibilityInfo.announceForAccessibility('Notification setting failed to update');
       showNotice({
-        title: 'UPDATE FAILED',
-        message: toggleError?.message || 'Notification setting could not be updated right now.',
+        title: 'Update failed',
+        message: toggleError?.message || 'That change did not save. Try again.',
         type: 'error',
-        duration: 3800,
       });
     } finally {
       setSavingNotifications(false);
@@ -160,255 +374,408 @@ const ProfileScreen = () => {
       setSigningOut(true);
       await signOut();
       showNotice({
-        title: 'SIGNED OUT',
-        message: 'Session closed. You are back in guest mode on this device.',
+        title: 'Signed out',
+        message: 'Your account is now in guest mode on this device.',
         type: 'info',
-        duration: 2800,
       });
-    } catch (signOutError: any) {
-      showNotice({
-        title: 'SIGN OUT FAILED',
-        message: signOutError?.message || 'Sign out did not complete. Try again.',
-        type: 'error',
-        duration: 3800,
-      });
+    } catch {
+      showNotice({ title: 'Sign out failed', message: 'Please try again.', type: 'error' });
     } finally {
       setSigningOut(false);
     }
   };
 
-  const handleRequestNotificationPermission = async () => {
-    const { status } = await Notifications.requestPermissionsAsync();
-    setNotificationsPermission(mapPermissionState(status));
-  };
-
-  const handleRequestLocationPermission = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    const mapped = mapPermissionState(status);
-    setLocationPermission(mapped);
-    if (mapped !== 'unknown') {
-      await passportService.setLocationPermissionStatus(mapped);
+  const handleRequestPermission = async (type: 'notifications' | 'location') => {
+    try {
+      if (type === 'notifications') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        const mapped = mapPermissionState(status);
+        setNotificationsPermission(mapped);
+        AccessibilityInfo.announceForAccessibility(`Notification permission ${toPermissionLabel(mapped)}`);
+      } else {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        const mapped = mapPermissionState(status);
+        setLocationPermission(mapped);
+        if (mapped !== 'unknown') {
+          await passportService.setLocationPermissionStatus(mapped);
+        }
+        AccessibilityInfo.announceForAccessibility(`Location permission ${toPermissionLabel(mapped)}`);
+      }
+    } catch (permissionError: any) {
+      showNotice({
+        title: 'Permission request failed',
+        message: permissionError?.message || 'Please try again from app settings.',
+        type: 'error',
+      });
     }
-  };
-
-  const renderPermissionAction = (
-    type: 'notifications' | 'location',
-    status: PermissionState,
-  ) => {
-    if (status === 'granted') {
-      return <Text style={styles.permissionGranted}>Granted</Text>;
-    }
-
-    if (status === 'denied') {
-      return (
-        <TouchableOpacity
-          style={styles.permissionActionButton}
-          onPress={() => {
-            void Linking.openSettings();
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={`Open settings for ${type} permission`}
-        >
-          <Text style={styles.permissionActionText}>Open Settings</Text>
-        </TouchableOpacity>
-      );
-    }
-
-    if (status === 'undetermined') {
-      return (
-        <TouchableOpacity
-          style={styles.permissionActionButton}
-          onPress={() => {
-            if (type === 'notifications') {
-              void handleRequestNotificationPermission();
-            } else {
-              void handleRequestLocationPermission();
-            }
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={`Request ${type} permission`}
-        >
-          <Text style={styles.permissionActionText}>Request</Text>
-        </TouchableOpacity>
-      );
-    }
-
-    return (
-      <TouchableOpacity
-        style={styles.permissionActionButton}
-        onPress={() => {
-          void refreshPermissions();
-        }}
-      >
-        <Text style={styles.permissionActionText}>Refresh</Text>
-      </TouchableOpacity>
-    );
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
+      <View style={styles.centeredState}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Loading control center...</Text>
-      </SafeAreaView>
+        <Text style={styles.loadingText}>Syncing your traveler desk...</Text>
+      </View>
     );
   }
 
-  if (error && !profile) {
+  const revealProps = (delay: number) =>
+    reduceMotionEnabled
+      ? {}
+      : {
+          from: { opacity: 0, translateY: 18 },
+          animate: { opacity: 1, translateY: 0 },
+          transition: { type: 'timing' as const, duration: 420, delay },
+        };
+
+  if (isGuest) {
     return (
-      <SafeAreaView style={styles.errorContainer}>
-        <Ionicons name="alert-circle-outline" size={42} color={theme.colors.primary} />
-        <Text style={styles.errorTitle}>Profile unavailable</Text>
-        <Text style={styles.errorMessage}>{error}</Text>
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => {
-            void refreshProfile();
-          }}
-        >
-          <Text style={styles.primaryButtonText}>Retry</Text>
-        </TouchableOpacity>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.atmosphereLayer} pointerEvents="none">
+          <CompassRose />
+          <View style={styles.topographyLayer}>
+            <TopographicSketch />
+          </View>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.guestScroll} showsVerticalScrollIndicator={false}>
+          <MotiView style={styles.guestCard} {...revealProps(0)}>
+            <View style={styles.guestBadge}>
+              <Text style={styles.guestBadgeText}>Traveler desk</Text>
+            </View>
+
+            <View style={styles.guestSignalWrap}>
+              <TravisSignal status="idle" size={64} />
+            </View>
+
+            <Text style={styles.guestTitle}>Your profile is traveling light</Text>
+            <Text style={styles.guestSubtitle}>
+              Sign in to sync your passport, itinerary settings, and notification preferences across the road.
+            </Text>
+
+            <View style={styles.guestBenefitRow}>
+              <View style={styles.guestBenefit}>
+                <Ionicons name="journal-outline" size={18} color={palette.ink} />
+                <Text style={styles.guestBenefitText}>Passport history</Text>
+              </View>
+              <View style={styles.guestBenefit}>
+                <Ionicons name="map-outline" size={18} color={palette.ink} />
+                <Text style={styles.guestBenefitText}>Journey defaults</Text>
+              </View>
+            </View>
+
+            {error ? <Text style={styles.guestErrorText}>{error}</Text> : null}
+
+            <View style={styles.guestActions}>
+              <Pressable
+                style={styles.primaryCta}
+                onPress={() => rootNavigation?.navigate('Login')}
+                accessibilityRole="button"
+                accessibilityLabel="Sign in"
+                accessibilityHint="Opens the login screen"
+              >
+                <Text style={styles.primaryCtaText}>Sign in</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.secondaryCta}
+                onPress={() => rootNavigation?.navigate('SignUp')}
+                accessibilityRole="button"
+                accessibilityLabel="Create account"
+                accessibilityHint="Opens the account creation screen"
+              >
+                <Text style={styles.secondaryCtaText}>Create account</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => void refreshProfile()}
+                style={styles.linkAction}
+                accessibilityRole="button"
+                accessibilityLabel="Retry profile sync"
+              >
+                <Text style={styles.linkActionText}>Retry sync</Text>
+              </Pressable>
+            </View>
+          </MotiView>
+        </ScrollView>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <MotiView from={{ opacity: 0, translateY: 14 }} animate={{ opacity: 1, translateY: 0 }}>
-          <View style={styles.hero}>
-            <View style={styles.heroRow}>
-              <View style={styles.heroAvatar}>
-                <Ionicons name="person" size={26} color="#FFFFFF" />
+      <View style={styles.atmosphereLayer} pointerEvents="none">
+        <CompassRose />
+        <View style={styles.topographyLayer}>
+          <TopographicSketch />
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <MotiView {...revealProps(0)}>
+          <View style={styles.heroCard}>
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroLead}>
+                <Text style={styles.heroEyebrow}>Traveler desk</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={cityShouldMarquee ? 'Replay home city scroll' : undefined}
+                  accessibilityHint={cityShouldMarquee ? 'Replays the scrolling home city label.' : undefined}
+                  disabled={!cityShouldMarquee}
+                  style={styles.heroCityViewport}
+                  onLayout={event => {
+                    const nextWidth = Math.ceil(event.nativeEvent.layout.width);
+                    setCityViewportWidth(current => (current === nextWidth ? current : nextWidth));
+                  }}
+                  onPress={runCityMarquee}
+                >
+                  <Animated.Text
+                    style={[
+                      styles.heroCity,
+                      styles.heroCityMarqueeText,
+                      cityRenderWidth > 0 ? { width: cityRenderWidth } : null,
+                      { transform: [{ translateX: cityMarqueeOffset }] },
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode={cityShouldMarquee ? 'clip' : 'tail'}
+                  >
+                    {homeCityLabel}
+                  </Animated.Text>
+                </Pressable>
+                <View pointerEvents="none" style={styles.heroCityMeasureViewport}>
+                  <ScrollView
+                    horizontal
+                    scrollEnabled={false}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.heroCityMeasureContent}
+                    onContentSizeChange={width => handleCityMeasured(width)}
+                  >
+                    <Text style={styles.heroCityMeasureText}>{homeCityLabel}</Text>
+                  </ScrollView>
+                </View>
+                <Text style={styles.heroSummary}>Home base for your next open-road detour.</Text>
+                <Text style={styles.heroMeta}>{profileEmail}</Text>
               </View>
-              <View style={styles.heroCopy}>
-                <Text style={styles.heroTitle}>TRAVELER CONTROL CENTER</Text>
-                <Text style={styles.heroSubtitle}>
-                  {profile?.home_city?.toUpperCase() || 'GUEST DEVICE MODE'}
-                </Text>
-              </View>
-              <View style={[styles.statusBadge, permissionStatusTone]}>
-                <Text style={styles.statusBadgeText}>
-                  {isGuest ? 'GUEST' : 'SIGNED IN'}
-                </Text>
+
+              <View style={styles.heroSignalColumn}>
+                <TravisSignal status={notificationsEnabled ? 'tracking' : 'idle'} size={58} />
+                <View style={[styles.heroStamp, passportOffline && styles.heroStampMuted]}>
+                  <Text style={styles.heroStampText}>{passportOffline ? 'Offline snapshot' : 'Passport ready'}</Text>
+                </View>
               </View>
             </View>
-            <View style={styles.statsRow}>
-              <StatChip label="Stamps" value={passportStats.stamps} />
-              <StatChip label="Countries" value={passportStats.countries} />
-              <StatChip
-                label="Alerts"
-                value={notificationsEnabled ? 'ON' : 'OFF'}
-              />
+
+            <View style={styles.heroStatsRow}>
+              <ProfileStat label="Stamps" value={passportStats.stamps} />
+              <ProfileStat label="Regions" value={passportStats.countries} />
+              <ProfileStat label="Nudges" value={notificationsEnabled ? 'On' : 'Off'} />
             </View>
           </View>
         </MotiView>
 
-        {passportOffline && (
-          <View style={styles.offlineBanner}>
-            <Ionicons name="cloud-offline-outline" size={16} color="#8A4A00" />
-            <Text style={styles.offlineText}>
-              Offline snapshot mode active. Settings edits are temporarily paused.
-            </Text>
-          </View>
-        )}
-
-        <MotiView from={{ opacity: 0, translateY: 20 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 80 }}>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Account</Text>
-            <View style={styles.row}>
-              <View style={styles.rowCopy}>
-                <Text style={styles.rowTitle}>Email</Text>
-                <Text style={styles.rowBody}>{profileEmail}</Text>
+        {error ? (
+          <MotiView {...revealProps(70)}>
+            <View style={styles.errorBanner}>
+              <View style={styles.errorIconWrap}>
+                <Ionicons name="alert-circle-outline" size={18} color={theme.colors.error} />
               </View>
-              <Text style={styles.inlineTag}>{isGuest ? 'Guest' : 'Active'}</Text>
+              <View style={styles.errorCopy}>
+                <Text style={styles.errorBannerTitle}>Profile sync needs another pass</Text>
+                <Text style={styles.errorBannerBody}>{error}</Text>
+              </View>
             </View>
-            <TouchableOpacity
-              style={[styles.secondaryButton, (isGuest || signingOut) && styles.buttonDisabled]}
-              disabled={isGuest || signingOut}
-              onPress={() => {
-                void handleSignOut();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Sign out"
+          </MotiView>
+        ) : null}
+
+        {identityChips.length > 0 ? (
+          <MotiView {...revealProps(120)}>
+            <SectionCard
+              eyebrow="Travel identity"
+              title="How the desk reads your defaults"
+              description="A quick read on how you usually move once Travis points at something good."
             >
-              <Text style={styles.secondaryButtonText}>
-                {signingOut ? 'Signing out...' : 'Sign out'}
-              </Text>
-            </TouchableOpacity>
-            {isGuest && (
-              <Text style={styles.guestNote}>
-                Sign in is required for synced profile changes. Guest mode remains read-only.
-              </Text>
-            )}
-          </View>
-        </MotiView>
+              <View style={styles.identityGrid}>
+                {identityChips.map(item => (
+                  <IdentityChip key={`${item.label}-${item.value}`} item={item} />
+                ))}
+              </View>
+            </SectionCard>
+          </MotiView>
+        ) : null}
 
-        <MotiView from={{ opacity: 0, translateY: 20 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 120 }}>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Notifications</Text>
-            <View style={styles.row}>
-              <View style={styles.rowCopy}>
-                <Text style={styles.rowTitle}>Travel nudges</Text>
-                <Text style={styles.rowBody}>
-                  Booking and itinerary reminders from Travis.
-                </Text>
+        <MotiView {...revealProps(180)}>
+          <SectionCard
+            eyebrow="Travel settings"
+            title="Keep the useful nudges on"
+            description="The app should feel like a sharp travel desk, not a noisy roommate."
+          >
+            <View style={styles.settingRow}>
+              <View style={styles.settingIconWrap}>
+                <Ionicons name="flash-outline" size={20} color={palette.ink} />
+              </View>
+              <View style={styles.settingCopy}>
+                <Text style={styles.settingTitle}>Travis nudges</Text>
+                <Text style={styles.settingText}>Timing alerts for itinerary changes and reminder moments.</Text>
               </View>
               <Switch
                 value={notificationsEnabled}
                 disabled={writesDisabled}
-                onValueChange={(value) => {
-                  void handleToggleNotifications(value);
-                }}
-                trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
-                thumbColor="#FFFFFF"
-                accessibilityLabel="Toggle travel notifications"
+                onValueChange={handleToggleNotifications}
+                trackColor={{ false: theme.colors.border, true: palette.ink }}
+                thumbColor={palette.white}
+                accessibilityLabel="Travis notifications"
+                accessibilityHint="Turns itinerary reminders on or off"
               />
             </View>
-            <Text style={styles.subtleText}>Quiet hours run from 9 PM to 8 AM local time.</Text>
-          </View>
+
+            <View style={styles.quietHoursNote}>
+              <Ionicons name="moon-outline" size={16} color={palette.mediumGray} />
+              <Text style={styles.quietHoursText}>Quiet hours run from 9:00 PM to 8:00 AM local time.</Text>
+            </View>
+          </SectionCard>
         </MotiView>
 
-        <MotiView from={{ opacity: 0, translateY: 20 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 150 }}>
-          <View style={styles.card}>
-            <View style={styles.cardHeadingRow}>
-              <Text style={styles.cardTitle}>Permissions</Text>
-              {permissionRefreshPending && <ActivityIndicator size="small" color={theme.colors.primary} />}
+        <MotiView {...revealProps(240)}>
+          <SectionCard eyebrow="Account" title="Your desk, your route">
+            <View style={styles.actionRow}>
+              <View style={styles.actionRowLead}>
+                <View style={styles.actionIconWrap}>
+                  <Ionicons name="mail-outline" size={18} color={palette.ink} />
+                </View>
+                <View style={styles.actionCopy}>
+                  <Text style={styles.actionTitle}>Account email</Text>
+                  <Text style={styles.actionValue}>{profileEmail}</Text>
+                </View>
+              </View>
             </View>
+
+            <Divider />
+
+            <View style={styles.actionRow}>
+              <View style={styles.actionRowLead}>
+                <View style={styles.actionIconWrap}>
+                  <Ionicons name="pin-outline" size={18} color={palette.ink} />
+                </View>
+                <View style={styles.actionCopy}>
+                  <Text style={styles.actionTitle}>Home base</Text>
+                  <Text style={styles.actionValue}>{homeCity}</Text>
+                </View>
+              </View>
+            </View>
+
+            <Divider />
+
+            <Pressable
+              style={styles.signOutButton}
+              onPress={handleSignOut}
+              disabled={signingOut}
+              accessibilityRole="button"
+              accessibilityLabel="Sign out"
+              accessibilityHint="Signs you out on this device"
+            >
+              <Text style={styles.signOutButtonText}>{signingOut ? 'Signing out...' : 'Sign out on this device'}</Text>
+            </Pressable>
+          </SectionCard>
+        </MotiView>
+
+        <MotiView {...revealProps(300)}>
+          <SectionCard
+            eyebrow="Permissions"
+            title="Keep the travel tools sharp"
+            description="These controls stay plain on purpose. They affect real app behavior."
+          >
+            <View style={styles.permissionRow}>
+              <View style={styles.actionRowLead}>
+                <View style={styles.actionIconWrap}>
+                  <Ionicons name="location-outline" size={18} color={palette.ink} />
+                </View>
+                <View style={styles.actionCopy}>
+                  <Text style={styles.actionTitle}>Location access</Text>
+                  <Text style={styles.actionValue}>{toPermissionLabel(locationPermission)}</Text>
+                </View>
+              </View>
+              {locationPermission === 'granted' ? (
+                <Text style={styles.permissionStateGood}>Ready</Text>
+              ) : (
+                <Pressable
+                  style={styles.inlineButton}
+                  onPress={() =>
+                    locationPermission === 'denied'
+                      ? void Linking.openSettings()
+                      : void handleRequestPermission('location')
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    locationPermission === 'denied'
+                      ? 'Open app settings for location permission'
+                      : 'Enable location permission'
+                  }
+                >
+                  <Text style={styles.inlineButtonText}>{locationPermission === 'denied' ? 'Open' : 'Enable'}</Text>
+                </Pressable>
+              )}
+            </View>
+
+            <Divider />
 
             <View style={styles.permissionRow}>
-              <View style={styles.rowCopy}>
-                <Text style={styles.rowTitle}>Notifications Permission</Text>
-                <Text style={styles.rowBody}>{toPermissionLabel(notificationsPermission)}</Text>
+              <View style={styles.actionRowLead}>
+                <View style={styles.actionIconWrap}>
+                  <Ionicons name="notifications-outline" size={18} color={palette.ink} />
+                </View>
+                <View style={styles.actionCopy}>
+                  <Text style={styles.actionTitle}>Notification access</Text>
+                  <Text style={styles.actionValue}>{toPermissionLabel(notificationsPermission)}</Text>
+                </View>
               </View>
-              {renderPermissionAction('notifications', notificationsPermission)}
+              {notificationsPermission === 'granted' ? (
+                <Text style={styles.permissionStateGood}>Ready</Text>
+              ) : (
+                <Pressable
+                  style={styles.inlineButton}
+                  onPress={() =>
+                    notificationsPermission === 'denied'
+                      ? void Linking.openSettings()
+                      : void handleRequestPermission('notifications')
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    notificationsPermission === 'denied'
+                      ? 'Open app settings for notification permission'
+                      : 'Enable notification permission'
+                  }
+                >
+                  <Text style={styles.inlineButtonText}>{notificationsPermission === 'denied' ? 'Open' : 'Enable'}</Text>
+                </Pressable>
+              )}
             </View>
 
-            <View style={styles.permissionDivider} />
+            <Divider />
 
             <View style={styles.permissionRow}>
-              <View style={styles.rowCopy}>
-                <Text style={styles.rowTitle}>Location Permission</Text>
-                <Text style={styles.rowBody}>{toPermissionLabel(locationPermission)}</Text>
+              <View style={styles.actionRowLead}>
+                <View style={styles.actionIconWrap}>
+                  <Ionicons name="lock-closed-outline" size={18} color={palette.ink} />
+                </View>
+                <View style={styles.actionCopy}>
+                  <Text style={styles.actionTitle}>Data & privacy</Text>
+                  <Text style={styles.actionValue}>Review app permissions and privacy controls in system settings.</Text>
+                </View>
               </View>
-              {renderPermissionAction('location', locationPermission)}
+              <Pressable
+                style={styles.inlineButton}
+                onPress={() => void Linking.openSettings()}
+                accessibilityRole="button"
+                accessibilityLabel="Open privacy settings"
+                accessibilityHint="Opens this app's settings on your device"
+              >
+                <Text style={styles.inlineButtonText}>Open</Text>
+              </Pressable>
             </View>
-          </View>
+          </SectionCard>
         </MotiView>
 
-        <MotiView from={{ opacity: 0, translateY: 20 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 180 }}>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Privacy</Text>
-            <View style={styles.privacyRow}>
-              <Text style={styles.rowTitle}>Export account data</Text>
-              <Text style={styles.comingSoon}>Coming soon</Text>
-            </View>
-            <View style={styles.privacyRow}>
-              <Text style={styles.rowTitle}>Delete account</Text>
-              <Text style={styles.comingSoon}>Coming soon</Text>
-            </View>
-          </View>
-        </MotiView>
+        <Text style={styles.footerText}>Build v1.0.4 release candidate</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -419,291 +786,536 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.background,
   },
-  content: {
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.sm,
-    paddingBottom: theme.spacing.huge,
-    gap: theme.spacing.sm,
-  },
-  loadingContainer: {
+  centeredState: {
     flex: 1,
-    backgroundColor: theme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    backgroundColor: theme.colors.background,
+    paddingHorizontal: theme.spacing.xl,
   },
   loadingText: {
+    marginTop: 16,
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fonts.narrative,
-    fontSize: theme.typography.sizes.md,
+    fontSize: 15,
+    textAlign: 'center',
   },
-  errorContainer: {
+  atmosphereLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  topographyLayer: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.45,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 120,
+    gap: 16,
+  },
+  heroCard: {
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 28,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(26,26,26,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  heroLead: {
     flex: 1,
-    backgroundColor: theme.colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.lg,
+    minWidth: 0,
   },
-  errorTitle: {
-    marginTop: 14,
+  heroEyebrow: {
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  heroCity: {
+    marginTop: 8,
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fonts.black,
-    fontSize: theme.typography.sizes.xl,
+    fontSize: 44,
+    lineHeight: 46,
+    letterSpacing: -1.2,
+    textTransform: 'uppercase',
+    flexShrink: 1,
   },
-  errorMessage: {
+  heroCityViewport: {
     marginTop: 8,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 21,
-    fontFamily: theme.typography.fonts.narrative,
-  },
-  primaryButton: {
-    marginTop: 20,
-    minHeight: 44,
-    borderRadius: 12,
-    paddingHorizontal: 22,
-    backgroundColor: theme.colors.textPrimary,
-    alignItems: 'center',
+    minHeight: 46,
+    overflow: 'hidden',
     justifyContent: 'center',
   },
-  primaryButtonText: {
-    color: '#FFFFFF',
+  heroCityMeasureViewport: {
+    position: 'absolute',
+    top: -10000,
+    left: -10000,
+    width: 1,
+    height: 1,
+    opacity: 0,
+  },
+  heroCityMeasureContent: {
+    alignItems: 'flex-start',
+  },
+  heroCityMeasureText: {
+    color: theme.colors.textPrimary,
     fontFamily: theme.typography.fonts.black,
-    fontSize: 12,
-    letterSpacing: 0.9,
+    fontSize: 44,
+    lineHeight: 46,
+    letterSpacing: -1.2,
   },
-  hero: {
-    marginTop: theme.spacing.sm,
-    borderRadius: 18,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    ...theme.shadows.card,
+  heroCityMarqueeText: {
+    flexShrink: 0,
   },
-  heroRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  heroSummary: {
+    marginTop: 10,
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fonts.narrative,
+    fontSize: 18,
+    lineHeight: 26,
+  },
+  heroMeta: {
+    marginTop: 10,
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 11,
+    letterSpacing: 0.8,
+  },
+  heroSignalColumn: {
+    alignItems: 'flex-end',
     gap: 12,
   },
-  heroAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.textPrimary,
+  heroStamp: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(26,26,26,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.75)',
+    transform: [{ rotate: '-7deg' }],
   },
-  heroCopy: {
+  heroStampMuted: {
+    backgroundColor: 'rgba(242,242,245,0.9)',
+  },
+  heroStampText: {
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 10,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    marginTop: 22,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(26,26,26,0.08)',
+  },
+  heroStat: {
     flex: 1,
   },
-  heroTitle: {
+  heroStatValue: {
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fonts.black,
-    fontSize: 13,
-    letterSpacing: 1.2,
+    fontSize: 28,
+    lineHeight: 30,
   },
-  heroSubtitle: {
-    marginTop: 4,
+  heroStatLabel: {
+    marginTop: 6,
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fonts.technicalBold,
     fontSize: 10,
-    letterSpacing: 0.6,
-  },
-  statusBadge: {
-    minHeight: 26,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  badgeSuccess: {
-    backgroundColor: 'rgba(46, 125, 50, 0.08)',
-    borderColor: 'rgba(46, 125, 50, 0.3)',
-  },
-  badgeWarning: {
-    backgroundColor: 'rgba(201, 122, 0, 0.08)',
-    borderColor: 'rgba(201, 122, 0, 0.3)',
-  },
-  badgeNeutral: {
-    backgroundColor: theme.colors.surfaceElevated,
-    borderColor: theme.colors.border,
-  },
-  statusBadgeText: {
-    color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 9,
-    letterSpacing: 0.8,
-  },
-  statsRow: {
-    marginTop: 12,
-    flexDirection: 'row',
-    gap: 8,
-  },
-  statChip: {
-    flex: 1,
-    minHeight: 58,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surfaceElevated,
-    paddingHorizontal: 10,
-    justifyContent: 'center',
-  },
-  statValue: {
-    color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.black,
-    fontSize: 17,
-  },
-  statLabel: {
-    marginTop: 2,
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 9,
-    letterSpacing: 0.8,
+    letterSpacing: 1,
     textTransform: 'uppercase',
   },
-  offlineBanner: {
-    minHeight: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(201, 122, 0, 0.24)',
-    backgroundColor: 'rgba(249, 168, 37, 0.12)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
+  errorBanner: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  offlineText: {
-    flex: 1,
-    color: '#8A4A00',
-    fontFamily: theme.typography.fonts.narrativeMedium,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  card: {
-    borderRadius: 18,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: theme.spacing.md,
+    alignItems: 'flex-start',
     gap: 12,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(198,40,40,0.18)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  cardHeadingRow: {
-    flexDirection: 'row',
+  errorIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(198,40,40,0.08)',
   },
-  cardTitle: {
-    color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.black,
-    fontSize: theme.typography.sizes.md,
-    letterSpacing: 0.4,
-  },
-  row: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  rowCopy: {
+  errorCopy: {
     flex: 1,
   },
-  rowTitle: {
+  errorBannerTitle: {
     color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: theme.typography.sizes.sm,
+    fontFamily: theme.typography.fonts.bold,
+    fontSize: 14,
   },
-  rowBody: {
+  errorBannerBody: {
     marginTop: 3,
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fonts.narrative,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 18,
   },
-  inlineTag: {
+  sectionCard: {
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(26,26,26,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.05,
+    shadowRadius: 20,
+    elevation: 6,
+  },
+  sectionEyebrow: {
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fonts.technicalBold,
     fontSize: 10,
-    letterSpacing: 0.8,
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
   },
-  secondaryButton: {
-    minHeight: 44,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surfaceElevated,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  secondaryButtonText: {
+  sectionTitle: {
+    marginTop: 6,
     color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 12,
-    letterSpacing: 0.8,
+    fontFamily: theme.typography.fonts.black,
+    fontSize: 24,
+    lineHeight: 28,
+    letterSpacing: -0.4,
   },
-  guestNote: {
+  sectionDescription: {
+    marginTop: 8,
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fonts.narrative,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 20,
   },
-  subtleText: {
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fonts.narrative,
-    fontSize: 12,
-    lineHeight: 18,
+  sectionBody: {
+    marginTop: 16,
   },
-  permissionRow: {
-    minHeight: 44,
+  identityGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  identityChip: {
+    minWidth: '48%',
+    flexGrow: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-  },
-  permissionDivider: {
-    height: 1,
-    backgroundColor: theme.colors.border,
-  },
-  permissionActionButton: {
-    minHeight: 34,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    backgroundColor: palette.softGray,
+    borderRadius: 18,
     paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  identityChipIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.surfaceElevated,
+    backgroundColor: 'rgba(255,255,255,0.75)',
   },
-  permissionActionText: {
+  identityChipCopy: {
+    flex: 1,
+  },
+  identityChipLabel: {
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 9,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+  },
+  identityChipValue: {
+    marginTop: 4,
     color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 10,
-    letterSpacing: 0.6,
+    fontFamily: theme.typography.fonts.bold,
+    fontSize: 14,
   },
-  permissionGranted: {
-    color: theme.colors.success,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 10,
-    letterSpacing: 0.6,
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
-  privacyRow: {
-    minHeight: 44,
+  settingIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.softGray,
+  },
+  settingCopy: {
+    flex: 1,
+  },
+  settingTitle: {
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fonts.bold,
+    fontSize: 15,
+  },
+  settingText: {
+    marginTop: 4,
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fonts.narrative,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  quietHoursNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(26,26,26,0.06)',
+  },
+  quietHoursText: {
+    flex: 1,
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fonts.narrative,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    minHeight: 44,
+  },
+  actionRowLead: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
   },
-  comingSoon: {
+  actionIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: palette.softGray,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionCopy: {
+    flex: 1,
+  },
+  actionTitle: {
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fonts.bold,
+    fontSize: 14,
+  },
+  actionValue: {
+    marginTop: 4,
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fonts.narrative,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  permissionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 44,
+  },
+  permissionStateGood: {
+    color: theme.colors.success,
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 11,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+  },
+  inlineButton: {
+    minHeight: 44,
+    minWidth: 84,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.textPrimary,
+  },
+  inlineButtonText: {
+    color: palette.white,
+    fontFamily: theme.typography.fonts.black,
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  signOutButton: {
+    minHeight: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(26,26,26,0.12)',
+    backgroundColor: palette.softGray,
+  },
+  signOutButtonText: {
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fonts.black,
+    fontSize: 12,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(26,26,26,0.08)',
+    marginVertical: 14,
+  },
+  guestScroll: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    justifyContent: 'center',
+  },
+  guestCard: {
+    backgroundColor: 'rgba(255,255,255,0.93)',
+    borderRadius: 30,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(26,26,26,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  guestBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: palette.softGray,
+  },
+  guestBadgeText: {
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fonts.technicalBold,
     fontSize: 10,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+  },
+  guestSignalWrap: {
+    marginTop: 18,
+    alignItems: 'flex-start',
+  },
+  guestTitle: {
+    marginTop: 18,
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fonts.black,
+    fontSize: 34,
+    lineHeight: 36,
+    letterSpacing: -0.8,
+  },
+  guestSubtitle: {
+    marginTop: 12,
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fonts.narrative,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  guestBenefitRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 18,
+  },
+  guestBenefit: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: palette.softGray,
+  },
+  guestBenefitText: {
+    flex: 1,
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fonts.bold,
+    fontSize: 12,
+  },
+  guestErrorText: {
+    marginTop: 14,
+    color: theme.colors.error,
+    fontFamily: theme.typography.fonts.narrativeMedium,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  guestActions: {
+    marginTop: 22,
+    gap: 12,
+  },
+  primaryCta: {
+    minHeight: 56,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.textPrimary,
+  },
+  primaryCtaText: {
+    color: palette.white,
+    fontFamily: theme.typography.fonts.black,
+    fontSize: 14,
     letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  secondaryCta: {
+    minHeight: 56,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(26,26,26,0.12)',
+  },
+  secondaryCtaText: {
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fonts.black,
+    fontSize: 14,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  linkAction: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  linkActionText: {
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 12,
+    letterSpacing: 0.7,
+    textDecorationLine: 'underline',
+    textTransform: 'uppercase',
+  },
+  footerText: {
+    marginTop: 6,
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 10,
+    letterSpacing: 1,
+    textAlign: 'center',
     textTransform: 'uppercase',
   },
 });

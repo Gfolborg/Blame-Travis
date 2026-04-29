@@ -58,6 +58,8 @@ const GUEST_USER_ID = 'guest-local';
 const SNAPSHOT_KEY_PREFIX = 'blame_travis:passport_snapshot:';
 const GUEST_STORE_KEY = 'blame_travis:passport_guest_store:v1';
 const LOCATION_PERMISSION_KEY = 'blame_travis:passport_location_permission:v1';
+const PASSPORT_SCHEMA_MISSING_MESSAGE =
+  'Passport backend setup is incomplete. Missing table public.passport_stamps. Run Supabase migration 008_passport_stamps_and_achievements.sql.';
 
 export const PROXIMITY_STAMP_RADIUS_METERS = 152.4;
 export const AUTO_STAMP_DWELL_MS = 120000;
@@ -257,6 +259,15 @@ const uniqueCount = (values: Array<string | null | undefined>): number => {
     if (normalized.length) set.add(normalized);
   });
   return set.size;
+};
+
+const isMissingPassportTableError = (error: unknown): boolean => {
+  const message = String((error as { message?: string } | null)?.message || error || '').toLowerCase();
+  return (
+    message.includes("could not find the table 'public.passport_stamps'") ||
+    message.includes('relation "passport_stamps" does not exist') ||
+    (message.includes('schema cache') && message.includes('passport_stamps'))
+  );
 };
 
 const getHomeCountryCode = (stamps: PassportStamp[]): string | null =>
@@ -601,6 +612,9 @@ export const passportService = {
           true,
           snapshot.savedAt,
         );
+      }
+      if (isMissingPassportTableError(error)) {
+        throw new Error(PASSPORT_SCHEMA_MISSING_MESSAGE);
       }
       throw new Error(error?.message || 'Failed to load passport data.');
     }
