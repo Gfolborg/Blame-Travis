@@ -93,6 +93,21 @@ const formatStampDate = (value: string | null): string => {
   return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+const getAchievementGroupLabel = (key: string): string => {
+  if (key === 'first_stamp') return 'Journey';
+  if (key === 'first_abroad') return 'Borders';
+  if (key.startsWith('places_')) return 'Places';
+  if (key.startsWith('countries_')) return 'Countries';
+  if (key.startsWith('days_completed_')) return 'Chapters';
+  return 'Passport';
+};
+
+const getAchievementSerial = (key: string): string =>
+  key
+    .replace(/_/g, '-')
+    .replace(/[^A-Za-z0-9-]/g, '')
+    .toUpperCase();
+
 const computeProgressValue = (
   definition: PassportAchievementDefinition,
   snapshot: PassportSnapshot,
@@ -223,37 +238,59 @@ const PlaceStampCard = ({
   );
 };
 
-const ProgressStampCard = ({ item }: { item: ProgressStampItem }) => {
+const AchievementStampTile = ({ item }: { item: ProgressStampItem }) => {
   const visual = getAchievementVisual(item.key);
   const progressWidth = item.total > 0 ? `${Math.min(100, (item.current / item.total) * 100)}%` : '0%';
+  const groupLabel = getAchievementGroupLabel(item.key);
+  const serial = getAchievementSerial(item.key);
 
   return (
-    <View style={styles.progressCard}>
-      <View style={styles.progressTopRow}>
-        <View style={[styles.progressSeal, { backgroundColor: visual.fill, borderColor: visual.ring }]}>
-          <Ionicons name={visual.iconName as any} size={18} color={visual.text} />
+    <View style={styles.stampTile}>
+      <View style={styles.stampTileTop}>
+        <View>
+          <Text style={styles.stampTileGroup}>{groupLabel}</Text>
+          <Text style={styles.stampTileSerial}>{serial}</Text>
         </View>
-        <View style={styles.progressCopy}>
-          <Text style={styles.progressTitle}>{item.title}</Text>
-          <Text style={styles.progressDescription}>{item.description}</Text>
-        </View>
-        <View style={[styles.progressBadge, item.isEarned ? styles.progressBadgeEarned : styles.progressBadgeLocked]}>
-          <Text style={[styles.progressBadgeText, item.isEarned ? styles.progressBadgeTextEarned : styles.progressBadgeTextLocked]}>
+        <View style={[styles.stampTileBadge, item.isEarned ? styles.progressBadgeEarned : styles.progressBadgeLocked]}>
+          <Text
+            style={[
+              styles.progressBadgeText,
+              item.isEarned ? styles.progressBadgeTextEarned : styles.progressBadgeTextLocked,
+            ]}
+          >
             {item.isEarned ? 'Received' : 'Locked'}
           </Text>
         </View>
+      </View>
+
+      <View style={[styles.stampTileArtwork, { backgroundColor: visual.fill, borderColor: visual.ring }]}>
+        <View style={styles.stampTileArtworkFrame}>
+          <View style={[styles.stampTileSeal, { borderColor: visual.ring }]}>
+            <Ionicons name={visual.iconName as any} size={26} color={visual.text} />
+          </View>
+          <Text style={[styles.stampTilePlaceholder, { color: visual.text }]}>Stamp Art Placeholder</Text>
+        </View>
+      </View>
+
+      <View style={styles.stampTileBody}>
+        <Text style={styles.stampTileTitle} numberOfLines={2}>
+          {item.title}
+        </Text>
+        <Text style={styles.stampTileDescription} numberOfLines={2}>
+          {item.description}
+        </Text>
       </View>
 
       <View style={styles.progressBarTrack}>
         <View style={[styles.progressBarFill, { width: progressWidth }]} />
       </View>
 
-      <View style={styles.progressFooter}>
-        <Text style={styles.progressCount}>
+      <View style={styles.stampTileFooter}>
+        <Text style={styles.stampTileCount}>
           {item.current}/{item.total}
         </Text>
-        <Text style={styles.progressDate}>
-          {item.isEarned ? `Stamped ${formatStampDate(item.earnedAt)}` : 'Keep rolling to unlock this stamp.'}
+        <Text style={styles.stampTileDate} numberOfLines={2}>
+          {item.isEarned ? `Stamped ${formatStampDate(item.earnedAt)}` : 'Next milestone'}
         </Text>
       </View>
     </View>
@@ -661,9 +698,11 @@ const PassportScreen = () => {
         {earnedProgressStampItems.length ? (
           <>
             <Text style={styles.subsectionLabel}>Received</Text>
-            {earnedProgressStampItems.map(item => (
-              <ProgressStampCard key={item.key} item={item} />
-            ))}
+            <View style={styles.stampGrid}>
+              {earnedProgressStampItems.map(item => (
+                <AchievementStampTile key={item.key} item={item} />
+              ))}
+            </View>
           </>
         ) : (
           <View style={styles.emptyPanelCard}>
@@ -677,9 +716,11 @@ const PassportScreen = () => {
         {lockedProgressStampItems.length ? (
           <>
             <Text style={styles.subsectionLabel}>In range</Text>
-            {lockedProgressStampItems.map(item => (
-              <ProgressStampCard key={item.key} item={item} />
-            ))}
+            <View style={styles.stampGrid}>
+              {lockedProgressStampItems.map(item => (
+                <AchievementStampTile key={item.key} item={item} />
+              ))}
+            </View>
           </>
         ) : null}
       </ScrollView>
@@ -1266,6 +1307,12 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
+  stampGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 12,
+  },
   statsGrid: {
     gap: 12,
   },
@@ -1388,47 +1435,93 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  progressCard: {
+  stampTile: {
+    width: '48.2%',
     borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(26,26,26,0.08)',
     backgroundColor: 'rgba(255,255,255,0.78)',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    aspectRatio: 0.94,
   },
-  progressTopRow: {
+  stampTileTop: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
+    justifyContent: 'space-between',
+    gap: 10,
   },
-  progressSeal: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  stampTileGroup: {
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 9,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+  },
+  stampTileSerial: {
+    marginTop: 3,
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 9,
+    letterSpacing: 0.8,
+  },
+  stampTileArtwork: {
+    marginTop: 10,
+    borderRadius: 18,
     borderWidth: 2,
+    minHeight: 98,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
-  progressCopy: {
-    flex: 1,
+  stampTileArtworkFrame: {
+    width: '100%',
+    minHeight: 74,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(26,26,26,0.12)',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
-  progressTitle: {
+  stampTileSeal: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.28)',
+  },
+  stampTilePlaceholder: {
+    marginTop: 8,
+    fontFamily: theme.typography.fonts.technicalBold,
+    fontSize: 9,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  stampTileBody: {
+    marginTop: 10,
+  },
+  stampTileTitle: {
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fonts.black,
-    fontSize: 16,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 17,
   },
-  progressDescription: {
+  stampTileDescription: {
     marginTop: 4,
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fonts.narrative,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 14,
   },
-  progressBadge: {
+  stampTileBadge: {
     minHeight: 28,
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1456,32 +1549,32 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     overflow: 'hidden',
     backgroundColor: palette.softGray,
-    marginTop: 14,
+    marginTop: 10,
   },
   progressBarFill: {
     height: '100%',
     borderRadius: 999,
     backgroundColor: theme.colors.textPrimary,
   },
-  progressFooter: {
+  stampTileFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 10,
+    alignItems: 'flex-start',
+    gap: 10,
+    marginTop: 8,
   },
-  progressCount: {
+  stampTileCount: {
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fonts.black,
-    fontSize: 12,
+    fontSize: 11,
   },
-  progressDate: {
+  stampTileDate: {
     flex: 1,
     textAlign: 'right',
     color: theme.colors.textSecondary,
     fontFamily: theme.typography.fonts.narrative,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 10,
+    lineHeight: 13,
   },
   emptyPanelCard: {
     borderRadius: 22,
