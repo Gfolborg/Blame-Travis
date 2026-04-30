@@ -1,6 +1,6 @@
 ﻿# Blame Travis Sprint Roadmap
 
-**Last Updated:** 2026-04-27
+**Last Updated:** 2026-04-29
 **Execution Model:** Vertical slice delivery by user outcome
 **Core Product:** Things-to-do discovery -> itinerary planning -> booking conversion -> retention
 
@@ -472,6 +472,16 @@ Create or verify SQL for personalization data:
   - Wired notification master toggle to profile persistence plus notification device registration/disable service flows.
   - Added offline snapshot banner and write lock behavior when profile controls are in offline mode.
   - Validated TypeScript and lint on touched profile files.
+- 2026-04-29: Hardened Passport stamp-art delivery pipeline and aligned schema/contracts for cross-environment reliability:
+  - Added map-first Passport stamp tile art integration with resilient manifest loading and placeholder fallback (`src/screens/PassportScreen.tsx`, `src/services/stampArt.ts`).
+  - Added typed DB contract for `passport_stamp_art_manifest` in `src/types/database.ts`.
+  - Added migration `supabase/migrations/009_passport_stamp_art_manifest.sql`:
+    - creates/normalizes manifest table with `storage_path` and `locked_storage_path`
+    - enables public-read policy for manifest rows
+    - creates/updates `passport-stamps` storage bucket with public read policy
+    - includes legacy backfill path for existing `image_path` columns.
+  - Replaced ad hoc uploader with reproducible service-role pipeline script `scripts/upload-passport-stamps.cjs` and npm command `passport:upload-stamps`.
+  - Validation evidence: `lint`, `tsc --noEmit`, and `policy:lint` passing on touched files.
 
 ---
 
@@ -602,6 +612,14 @@ Create or verify monetization reporting views:
 
 ### Progress Log
 - 2026-04-19: Sprint initialized.
+- 2026-04-27: Completed Profile screen DESIGN polish and UX quality pass (The Traveler’s Ledger):
+  - Overhauled the layout into a high-end "editorial" style, resembling a luxury travel journal or field manual.
+  - Implemented massive, high-contrast typography for the "City Headline" identity section.
+  - Added a physical "Red Ink Stamp" effect for the Clearance Level (L5) to reinforce the tactile document vibe.
+  - Redesigned stats into a stark, 3-column "Ledger Bar" with huge numbers and tracked-out labels.
+  - Replaced cards with "Dossier Rows" separated by solid thick ink lines and large iconic markers.
+  - Implemented a "Mock Sign-In" simulation: tap Google/Apple in Guest Mode to instantly see the full authenticated editorial experience.
+  - Verified accessibility (tap targets, contrast) and stability on Android.
 
 ---
 

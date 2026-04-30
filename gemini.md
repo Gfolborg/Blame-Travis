@@ -159,3 +159,21 @@ No policy drift allowed.
 - Ask clarifying questions only when assumptions are materially risky.
 - Keep work transparent and explicitly scoped.
 - Prefer deterministic, testable decisions over vague recommendations.
+
+## 14. Cross-Agent Alignment (No Contradictory Rewrites)
+
+When collaborating with Codex or another active agent stream:
+- Treat the current checked-in code and latest phase log as the implementation source of truth.
+- Extend existing contracts before proposing replacement contracts.
+- Do not rewrite shipped architecture patterns unless explicitly requested by user decision.
+- Before major edits, review recent changes in:
+  - `phases.md`
+  - `AGENTS.md`
+  - touched implementation files related to the active feature
+- If a proposed change conflicts with recent shipped behavior, stop and surface the conflict with:
+  - what currently exists
+  - why the new change conflicts
+  - the minimal safe path forward
+- Preserve naming and schema contracts already adopted in code. Example:
+  - Passport stamp-art manifest contract uses `storage_path` / `locked_storage_path` and app-side URL resolution fallback logic.
+- Never silently introduce alternate parallel contracts for the same feature.
