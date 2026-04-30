@@ -49,12 +49,25 @@ Allowed in MVP:
 - saved activities
 - itinerary builder
 - booking intent/outcome tracking
+- affiliate booking partner handoff with clear disclosure and attribution tracking
 
 Not allowed in MVP:
 - broad OTA flight/hotel expansion
 - AI-only planning without grounded inventory
 - hidden critical gestures
 - dead-end flows requiring hard permission grants
+- undisclosed sponsored ranking manipulation
+
+## 4.2 Affiliate and Partnership Rules
+
+- Affiliate offers must be labeled clearly (for example `Partner offer` or `Sponsored`) on all surfaces where they appear.
+- Activity ranking remains relevance-first; partner boosts must be bounded and must not suppress core user-fit results.
+- Primary affiliate conversion surface is activity details; secondary surface is itinerary stop actions.
+- Explore list cards may show partner badges but must avoid aggressive repeated booking CTAs that degrade browse UX.
+- Every affiliate click/handoff must emit attribution telemetry with partner id, placement, and activity id.
+- Affiliate/partner UX is a user-helpful supplement to the core experience, not an interruption; it must remain optional and non-blocking.
+- No affiliate/partner UI should render unless implementation is complete, feature flags are enabled, and at least one active partner/offer is configured.
+- Expansion path is phased: activity booking partners first, then hotels/cars supplement lanes, then flights after post-launch quality and trust gates.
 
 ## 4.1 Itinerary Targeting Rules
 
@@ -130,6 +143,7 @@ Supabase requirements:
 - least-privilege policy model
 - validated status enums and constraints
 - indexed read paths for search, save, itinerary, booking events
+- indexed read paths for affiliate attribution and commission reconciliation events
 
 Security requirements:
 - secrets never in public client bundles

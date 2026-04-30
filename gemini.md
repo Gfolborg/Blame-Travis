@@ -43,11 +43,24 @@ MVP includes:
 - save and itinerary builder
 - booking intent and outcome analytics
 - rules-based personalization
+- affiliate booking partner handoff with disclosure and attribution tracking
 
 MVP excludes:
 - broad OTA flight/hotel stack
 - uncontrolled filter sprawl
 - ungrounded AI itinerary generation
+- undisclosed sponsored ranking manipulation
+
+## 4.2 Affiliate and Partnership Discipline
+
+- Affiliate placements must be clearly disclosed (for example `Partner offer` or `Sponsored`) anywhere they are shown.
+- Ranking remains relevance-first; sponsored/partner influence must be bounded and must not suppress core user-fit results.
+- Primary affiliate conversion touchpoint is activity details; secondary touchpoint is itinerary stop actions.
+- Explore cards may show partner badges but should avoid repetitive heavy CTAs that disrupt discovery.
+- Emit attribution telemetry on each affiliate click/handoff with partner id, placement, and activity id.
+- Affiliate/partner UX is an optional in-app supplement that helps users continue planning without leaving the app; it must not block core flows.
+- Do not render affiliate/partner UI unless the surface is implemented, the corresponding feature flag is enabled, and active partner data exists.
+- Use phased expansion: activity partners first, hotels/cars supplement lanes next, flights only after later quality and trust gates.
 
 ## 4.1 Itinerary Targeting Discipline
 
@@ -116,6 +129,7 @@ Never use:
 - server-side handling for sensitive provider integrations
 - LLM prompt and output safety checks
 - explicit, clear permission rationale and fallbacks
+- indexed and auditable affiliate attribution/commission event paths
 - temporary client-side provider fallback paths are allowed only for development continuity and must be removed/disabled before production release
 - privileged scheduler/admin edge functions must require a non-public shared secret gate (for example `x-edge-cron-secret`)
 - privileged write edge functions must enforce authenticated ownership checks before mutating user-owned records

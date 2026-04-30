@@ -325,6 +325,8 @@ Create or verify SQL for itineraries and itinerary_items:
 - [ ] Track booking stages: started, completed, failed, abandoned.
 - [ ] Add fallback UI for provider failure and retry.
 - [ ] Add commission attribution fields where available.
+- [ ] Add affiliate/partnership disclosure labels on monetized booking placements.
+- [ ] Emit affiliate attribution events (impression/click/handoff) with partner + placement metadata.
 
 ### Supabase Agent Prompt
 ```text
@@ -345,6 +347,7 @@ Create or verify SQL for booking funnel:
 - [ ] Booking intent always recorded when CTA is triggered.
 - [ ] Failure state offers clear retry or fallback action.
 - [ ] Funnel query can calculate start->complete conversion.
+- [ ] Affiliate placements are clearly disclosed and attribution events are queryable by partner and surface.
 - [ ] End-of-phase code review completed for UI/UX quality, design consistency, and any bugs/missing connections; blocking findings fixed.
 
 ### Exit Criteria
@@ -417,6 +420,7 @@ Create or verify SQL for booking funnel:
 - [x] Design and implement Passport screen v1 (default/loading/empty/error states + accessibility pass).
 - [x] Design and implement Profile screen v1 (settings clarity, notice feedback, accessibility pass).
 - [ ] Complete API-live setup hardening for release (provider key boundary enforcement + deployment config alignment).
+- [ ] Define affiliate partner contract v1 (partner catalog, offer metadata, attribution fields, payout status model).
 
 ### Supabase Agent Prompt
 ```text
@@ -435,6 +439,8 @@ Create or verify SQL for personalization data:
 - Passport screen v1 implementation + UX state matrix
 - Profile screen v1 implementation + UX state matrix
 - API-live setup checklist with verification evidence
+- Affiliate/partnership implementation contract doc with telemetry schema
+- Affiliate UI copy plan v1 (`docs/monetization/affiliate-ui-copy-plan-v1.md`)
 
 ### Acceptance Gates
 - [ ] Ranking reflects explicit preferences in test fixtures.
@@ -443,6 +449,8 @@ Create or verify SQL for personalization data:
 - [ ] Passport and Profile screens satisfy UX/accessibility contract states and no dead-end flows.
 - [ ] Android preview build uses production-safe key boundaries (client restricted key only; web-service keys server-side).
 - [ ] Deployment pipeline readiness checklist passes (`lint`, `tsc`, `tests`, `expo-doctor`, preview build).
+- [ ] Affiliate event taxonomy and disclosure policy lint checks pass against shipped UI copy/states.
+- [ ] Details-surface affiliate copy matrix (CTA/disclosure/loading/error/return states) is implemented and telemetry-queryable by copy variant.
 
 ### Exit Criteria
 - Relevance and explainability work together without trust regressions.
@@ -482,6 +490,9 @@ Create or verify SQL for personalization data:
     - includes legacy backfill path for existing `image_path` columns.
   - Replaced ad hoc uploader with reproducible service-role pipeline script `scripts/upload-passport-stamps.cjs` and npm command `passport:upload-stamps`.
   - Validation evidence: `lint`, `tsc --noEmit`, and `policy:lint` passing on touched files.
+- 2026-04-30: Added affiliate monetization planning artifacts:
+  - Added implementation contract `docs/monetization/affiliate-contract-v1.md`.
+  - Added Details-first copy spec `docs/monetization/affiliate-ui-copy-plan-v1.md` with brand-forward CTA pattern, inline `Partner offer` disclosure, telemetry copy-variant fields, OTA appendix guidance, and partner-expansion rules.
 
 ---
 
@@ -584,6 +595,8 @@ Return exact SQL fixes plus validation queries for each finding.
 - [ ] Enable commission reporting.
 - [ ] Enable featured placement controls (if included).
 - [ ] Enable entitlement checks for premium features (if included).
+- [ ] Pilot optional in-app affiliate supplement entrypoints for adjacent needs (hotels/cars) on high-intent surfaces, without disrupting core activity discovery.
+- [ ] Keep all affiliate supplement UI dark by default until partner onboarding, legal copy, and feature-flag activation are complete.
 - [ ] Finalize store assets, legal documents, and support playbooks.
 - [ ] Execute staged rollout and live monitoring.
 - [ ] Triage launch-week incidents daily.
@@ -606,6 +619,8 @@ Create or verify monetization reporting views:
 - [ ] Launch completed without blocking incidents.
 - [ ] Core funnel telemetry validated in production.
 - [ ] Monetization instrumentation queryable and accurate.
+- [ ] Affiliate supplement entrypoints are optional and non-blocking; activity discovery/save/itinerary/booking metrics do not regress from baseline.
+- [ ] No affiliate UI appears in production unless active partner/offer config and release-approved feature flags are present.
 
 ### Exit Criteria
 - Product is live with stable metrics and operational support.
@@ -636,6 +651,7 @@ Create or verify monetization reporting views:
 - [ ] Add ranking experiments and holdout cohorts.
 - [ ] Refine search relevance from production query logs.
 - [ ] Expand provider coverage only when demand/conversion supports it.
+- [ ] Evaluate flights supplement lane only after Sprint 8 trust/reliability gates are met.
 - [ ] Optimize completion and booking nudges.
 - [ ] Schedule quarterly performance and security recertification.
 

@@ -60,6 +60,7 @@ The default browse surface should include:
 - **POI discovery layer**: Google Places API first (optional Foursquare expansion).
 - **Bookable activity layer**: Viator first, with future optional expansion to GetYourGuide/Amadeus.
 - **Hybrid strategy**: broad discovery plus bookable depth in the same destination flow.
+- **Affiliate/partnership mode**: partner-booking handoffs are allowed in MVP when clearly disclosed and attribution-tracked.
 - **Current security mode**: discovery helper calls (autocomplete/geocode/reverse-geocode) are edge-first; temporary client fallback is allowed for development only. See `docs/release/discovery-fallback-handoff.md`.
 - **Privileged edge-function guardrails**: scheduler/admin functions now require `x-edge-cron-secret` and image-generation writes require an authenticated caller that owns the target adventure.
 
@@ -111,6 +112,22 @@ Travis remains the host voice and recommendation narrator.
 2. Featured placement for activity providers
 3. Premium itinerary and advanced personalization tier
 4. Optional subscription for offline + advanced filters
+
+### Affiliate and Partnership UX Rules
+
+- Clearly label monetized inventory (`Partner offer`/`Sponsored`) at point of interaction.
+- Prioritize placement on Activity Details (primary CTA) and Itinerary stops (secondary CTA).
+- Keep Explore feed discovery-first; use subtle partner badges instead of repeated hard-sell CTAs.
+- Maintain relevance-first ranking with bounded sponsored influence.
+- Track partner attribution at minimum for impression, click, handoff start, and handoff return.
+- Treat affiliate options as a supplement to user intent (helpful next option), not as an interruption to discovery or planning.
+- Keep affiliate UI dark until implemented and enabled: no partner surfaces should appear without active partner/offer configuration and feature flags.
+
+### Planned Expansion Path (Not Live Yet)
+
+1. Activity partner handoff (Details-first; optional on Journeys).
+2. Adjacent travel supplements for hotels/cars on high-intent surfaces.
+3. Flights supplement lane after post-launch reliability/trust gates.
 
 ## Out of Scope (for now)
 
