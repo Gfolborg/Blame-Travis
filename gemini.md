@@ -60,6 +60,7 @@ MVP excludes:
 - Emit attribution telemetry on each affiliate click/handoff with partner id, placement, and activity id.
 - Affiliate/partner UX is an optional in-app supplement that helps users continue planning without leaving the app; it must not block core flows.
 - Do not render affiliate/partner UI unless the surface is implemented, the corresponding feature flag is enabled, and active partner data exists.
+- Keep affiliate surfaces dark by default behind `affiliate_enabled`, `affiliate_details_enabled`, `affiliate_journeys_enabled`, and `affiliate_explore_badge_enabled` until explicit release activation.
 - Use phased expansion: activity partners first, hotels/cars supplement lanes next, flights only after later quality and trust gates.
 
 ## 4.1 Itinerary Targeting Discipline
@@ -133,6 +134,7 @@ Never use:
 - temporary client-side provider fallback paths are allowed only for development continuity and must be removed/disabled before production release
 - privileged scheduler/admin edge functions must require a non-public shared secret gate (for example `x-edge-cron-secret`)
 - privileged write edge functions must enforce authenticated ownership checks before mutating user-owned records
+- affiliate handoff URL creation and attribution writes must occur server-side only with active partner/offer validation before outbound redirect
 
 ## 10. Sprint-Based Delivery Rules
 

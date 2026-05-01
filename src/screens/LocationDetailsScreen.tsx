@@ -546,11 +546,24 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
         commissionCampaignId: 'editorial_v1',
         commissionRateBps: null,
         commissionExpectedMinor: null,
+        partnerId: null,
+        offerId: null,
+        placementKey: null,
+        copyVariant: null,
+        disclosureWording: null,
       });
-      await bookingService.openProviderHandoff(intent.id, details.bookingDeepLink);
+      const opened = await bookingService.openProviderHandoff(intent.id, details.bookingDeepLink);
+      if (!opened) {
+        showNotice({ title: 'BOOKING ERROR', message: 'Unable to connect to booking provider.', type: 'error' });
+      }
     } catch {
       showNotice({ title: 'BOOKING ERROR', message: 'Unable to connect to booking provider.', type: 'error' });
-    } finally { setBookingOpening(false); }
+    } finally {
+      const summary = await bookingService.getBookingStateByActivity(details.canonicalKey || details.id);
+      setBookingLabel(summary.statusLabel);
+      setBookingTone(summary.statusTone);
+      setBookingOpening(false);
+    }
   };
 
   if (loading) {

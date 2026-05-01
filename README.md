@@ -61,6 +61,7 @@ The default browse surface should include:
 - **Bookable activity layer**: Viator first, with future optional expansion to GetYourGuide/Amadeus.
 - **Hybrid strategy**: broad discovery plus bookable depth in the same destination flow.
 - **Affiliate/partnership mode**: partner-booking handoffs are allowed in MVP when clearly disclosed and attribution-tracked.
+- **Affiliate dark-launch foundation**: affiliate data model + server action contract are implemented, but all affiliate UI surfaces stay off by default via feature flags until activation.
 - **Current security mode**: discovery helper calls (autocomplete/geocode/reverse-geocode) are edge-first; temporary client fallback is allowed for development only. See `docs/release/discovery-fallback-handoff.md`.
 - **Privileged edge-function guardrails**: scheduler/admin functions now require `x-edge-cron-secret` and image-generation writes require an authenticated caller that owns the target adventure.
 
@@ -122,6 +123,14 @@ Travis remains the host voice and recommendation narrator.
 - Track partner attribution at minimum for impression, click, handoff start, and handoff return.
 - Treat affiliate options as a supplement to user intent (helpful next option), not as an interruption to discovery or planning.
 - Keep affiliate UI dark until implemented and enabled: no partner surfaces should appear without active partner/offer configuration and feature flags.
+
+### Affiliate QA Tooling (Dark Launch)
+
+- Seed mock partner/offer/placement data: `npm run qa:seed:affiliate-foundation`
+- Verify attribution queryability summary: `npm run qa:verify:affiliate-foundation`
+- Cleanup (disable seeded rows): `npm run qa:cleanup:affiliate-foundation`
+- Purge QA rows: `npm run qa:purge:affiliate-foundation`
+- Runbook: `docs/sprint-4/affiliate-qa-runbook.md`
 
 ### Planned Expansion Path (Not Live Yet)
 

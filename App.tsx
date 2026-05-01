@@ -14,6 +14,7 @@ import { NoticeProvider } from './src/components/TravisNotice';
 import { NotificationCoordinator } from './src/components/NotificationCoordinator';
 import { BookingOutcomeCoordinator } from './src/components/BookingOutcomeCoordinator';
 import { PassportAutoStampCoordinator } from './src/components/PassportAutoStampCoordinator';
+import { PassportAchievementRewardCoordinator } from './src/components/PassportAchievementRewardCoordinator';
 import { navigationRef } from './src/navigation/navigationRef';
 
 const getDeepestActiveRouteName = (state: any): string | undefined => {
@@ -102,6 +103,7 @@ export default function App() {
                 <NotificationCoordinator />
                 <BookingOutcomeCoordinator />
                 <PassportAutoStampCoordinator />
+                <PassportAchievementRewardCoordinator />
                 <RootNavigator />
                 <StatusBar style="dark" />
               </NavigationContainer>

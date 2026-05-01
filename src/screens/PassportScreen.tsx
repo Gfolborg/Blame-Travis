@@ -1,13 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
+  Animated,
+  Easing,
   FlatList,
   Image,
+  LayoutChangeEvent,
   Linking,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  Vibration,
   View,
   Dimensions,
 } from 'react-native';
@@ -16,6 +21,7 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { getAchievementVisual, getStampVisualPreset } from '../config/passportVisuals';
 import { listAchievementDefinitions, passportService } from '../services/passport';
@@ -34,6 +40,23 @@ import { MainTabParamList, RootStackParamList } from '../types/navigation';
 const { height } = Dimensions.get('window');
 const DRAWER_HEIGHT = Math.min(Math.max(height * 0.38, 300), 380);
 const RAIL_HEIGHT = 76;
+const STAMP_ANIMATION_SEEN_KEY_PREFIX = 'blame_travis:passport_stamp_intro_seen:v1:';
+
+const LOCAL_STAMPS: Record<string, any> = {
+  first_stamp: require('../../assets/stamps/first_stamp.png'),
+  first_abroad: require('../../assets/stamps/first_abroad.png'),
+  places_5: require('../../assets/stamps/places_5.png'),
+  places_10: require('../../assets/stamps/places_10.png'),
+  places_25: require('../../assets/stamps/places_25.png'),
+  places_50: require('../../assets/stamps/places_50.png'),
+  places_100: require('../../assets/stamps/places_100.png'),
+  countries_2: require('../../assets/stamps/countries_2.png'),
+  countries_5: require('../../assets/stamps/countries_5.png'),
+  countries_10: require('../../assets/stamps/countries_10.png'),
+  days_completed_1: require('../../assets/stamps/days_completed_1.png'),
+  days_completed_5: require('../../assets/stamps/days_completed_5.png'),
+  days_completed_10: require('../../assets/stamps/days_completed_10.png'),
+};
 
 type TabNavigationProp = BottomTabNavigationProp<MainTabParamList, 'Passport'>;
 type PassportTabKey = 'stamps' | 'places' | 'stats';
@@ -95,21 +118,6 @@ const formatStampDate = (value: string | null): string => {
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
-
-const getAchievementGroupLabel = (key: string): string => {
-  if (key === 'first_stamp') return 'Journey';
-  if (key === 'first_abroad') return 'Borders';
-  if (key.startsWith('places_')) return 'Places';
-  if (key.startsWith('countries_')) return 'Countries';
-  if (key.startsWith('days_completed_')) return 'Chapters';
-  return 'Passport';
-};
-
-const getAchievementSerial = (key: string): string =>
-  key
-    .replace(/_/g, '-')
-    .replace(/[^A-Za-z0-9-]/g, '')
-    .toUpperCase();
 
 const computeProgressValue = (
   definition: PassportAchievementDefinition,
@@ -244,53 +252,168 @@ const PlaceStampCard = ({
 const AchievementStampTile = ({
   item,
   manifestEntry,
+  shouldAnimate = false,
+  animationToken,
+  isDimmed = false,
+  isFocused = false,
+  onLayout,
+  onAnimationComplete,
 }: {
   item: ProgressStampItem;
   manifestEntry?: StampArtManifestEntry;
+  shouldAnimate?: boolean;
+  animationToken?: string | null;
+  isDimmed?: boolean;
+  isFocused?: boolean;
+  onLayout?: (_layout: { y: number; height: number }) => void;
+  onAnimationComplete?: (_token: string) => void;
 }) => {
   const visual = getAchievementVisual(item.key);
   const progressWidth = item.total > 0 ? (`${Math.min(100, (item.current / item.total) * 100)}%` as const) : '0%';
-  const groupLabel = getAchievementGroupLabel(item.key);
-  const serial = getAchievementSerial(item.key);
+  const stampScale = useRef(new Animated.Value(1)).current;
+  const stampOpacity = useRef(new Animated.Value(1)).current;
+  const stampRotation = useRef(new Animated.Value(0)).current;
+  const stampTranslateY = useRef(new Animated.Value(0)).current;
+  const lastAnimatedTokenRef = useRef<string | null>(null);
+  
+  const localAsset = LOCAL_STAMPS[item.key];
   const artUri = item.isEarned
-    ? manifestEntry?.imageUrl ?? null
-    : manifestEntry?.lockedImageUrl ?? manifestEntry?.imageUrl ?? null;
+    ? (manifestEntry?.imageUrl ?? null)
+    : (manifestEntry?.lockedImageUrl ?? manifestEntry?.imageUrl ?? null);
+    
+  const imageSource = localAsset ? localAsset : (artUri ? { uri: artUri } : null);
 
+  useEffect(() => {
+    if (!shouldAnimate || !animationToken || !item.isEarned) return;
+    if (lastAnimatedTokenRef.current === animationToken) return;
+    lastAnimatedTokenRef.current = animationToken;
+
+    stampScale.setValue(3.25);
+    stampOpacity.setValue(0);
+    stampRotation.setValue(-1.7);
+    stampTranslateY.setValue(-24);
+
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(stampOpacity, {
+          toValue: 1,
+          duration: 80,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(stampRotation, {
+          toValue: 0,
+          duration: 145,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(stampTranslateY, {
+          toValue: 0,
+          duration: 145,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(stampScale, {
+          toValue: 0.96,
+          duration: 145,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.timing(stampScale, {
+        toValue: 1.05,
+        duration: 75,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.spring(stampScale, { toValue: 1, speed: 19, bounciness: 6, useNativeDriver: true }),
+    ]).start(() => {
+      onAnimationComplete?.(animationToken);
+    });
+  }, [
+    animationToken,
+    item.isEarned,
+    onAnimationComplete,
+    shouldAnimate,
+    stampOpacity,
+    stampRotation,
+    stampTranslateY,
+    stampScale,
+  ]);
+
+  const rotation = stampRotation.interpolate({
+    inputRange: [-1.7, 0],
+    outputRange: ['-10deg', '0deg'],
+  });
+
+  const handleLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { y, height } = event.nativeEvent.layout;
+      onLayout?.({ y, height });
+    },
+    [onLayout],
+  );
+  
   return (
-    <View style={styles.stampTile}>
-      <View style={styles.stampTileTop}>
-        <View>
-          <Text style={styles.stampTileGroup}>{groupLabel}</Text>
-          <Text style={styles.stampTileSerial}>{serial}</Text>
-        </View>
-        <View style={[styles.stampTileBadge, item.isEarned ? styles.progressBadgeEarned : styles.progressBadgeLocked]}>
-          <Text
-            style={[
-              styles.progressBadgeText,
-              item.isEarned ? styles.progressBadgeTextEarned : styles.progressBadgeTextLocked,
-            ]}
-          >
-            {item.isEarned ? 'Received' : 'Locked'}
-          </Text>
-        </View>
-      </View>
-
-      <View style={[styles.stampTileArtwork, { backgroundColor: visual.fill, borderColor: visual.ring }]}>
-        {artUri ? (
-          <Image
-            source={{ uri: artUri }}
-            style={[styles.stampTileImage, !item.isEarned ? styles.stampTileImageLocked : null]}
-            accessibilityLabel={`${item.title} stamp art`}
-            resizeMode="contain"
-          />
-        ) : (
-          <View style={styles.stampTileArtworkFrame}>
-            <View style={[styles.stampTileSeal, { borderColor: visual.ring }]}>
-              <Ionicons name={visual.iconName as any} size={26} color={visual.text} />
+    <View
+      style={[
+        styles.stampTile,
+        isDimmed ? styles.stampTileDimmed : null,
+        isFocused ? styles.stampTileFocused : null,
+      ]}
+      onLayout={handleLayout}
+      accessibilityRole="image"
+      accessibilityLabel={`${item.title} ${item.isEarned ? 'earned' : 'locked'} passport stamp`}
+    >
+      <Animated.View
+        style={[
+          styles.stampInkAnimated,
+          item.isEarned
+            ? {
+                opacity: stampOpacity,
+                transform: [{ translateY: stampTranslateY }, { scale: stampScale }, { rotate: rotation }],
+              }
+            : null,
+        ]}
+      >
+        <View
+          style={[
+            styles.stampTileArtwork,
+            { backgroundColor: visual.fill, borderColor: visual.ring },
+            imageSource && {
+              backgroundColor: 'transparent',
+              borderColor: 'transparent',
+              borderWidth: 0,
+              paddingHorizontal: 0,
+              paddingVertical: 0,
+            },
+          ]}
+        >
+          {imageSource ? (
+            <Image
+              source={imageSource}
+              style={[styles.stampTileImage, !item.isEarned ? styles.stampTileImageLocked : null]}
+              accessibilityLabel={`${item.title} stamp art`}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.stampTileArtworkFrame}>
+              <View style={[styles.stampTileSeal, { borderColor: visual.ring }]}>
+                <Ionicons name={visual.iconName as any} size={26} color={visual.text} />
+              </View>
+              <Text style={[styles.stampTilePlaceholder, { color: visual.text }]}>Stamp Art Placeholder</Text>
             </View>
-            <Text style={[styles.stampTilePlaceholder, { color: visual.text }]}>Stamp Art Placeholder</Text>
+          )}
+        </View>
+      </Animated.View>
+
+      <View style={styles.stampTileTop}>
+        <View style={styles.stampTileTopCopy} />
+        {item.isEarned ? (
+          <View style={[styles.stampTileBadge, styles.progressBadgeEarned]}>
+            <Text style={[styles.progressBadgeText, styles.progressBadgeTextEarned]}>Received</Text>
           </View>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.stampTileBody}>
@@ -379,6 +502,14 @@ const PassportScreen = () => {
     latitudeDelta: number;
     longitudeDelta: number;
   } | null>(null);
+  const seenStampAnimationsRef = useRef<Set<string>>(new Set());
+  const stampsScrollRef = useRef<ScrollView | null>(null);
+  const stampTileLayoutRef = useRef<Record<string, { y: number; height: number }>>({});
+  const stampAnimationKickoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [queuedStampAnimations, setQueuedStampAnimations] = useState<string[]>([]);
+  const [activeStampAnimationToken, setActiveStampAnimationToken] = useState<string | null>(null);
+  const [playingStampAnimationToken, setPlayingStampAnimationToken] = useState<string | null>(null);
+  const [focusedStampToken, setFocusedStampToken] = useState<string | null>(null);
   const isSignedIn = !!session?.user?.id;
   const permissionPaused = snapshot.permissionStatus === 'denied';
   const isBackendSetupIssue =
@@ -386,6 +517,7 @@ const PassportScreen = () => {
     (errorMessage.toLowerCase().includes('missing table public.passport_stamps') ||
       errorMessage.toLowerCase().includes("could not find the table 'public.passport_stamps'") ||
       errorMessage.toLowerCase().includes('008_passport_stamps_and_achievements.sql'));
+  const stampAnimationStorageKey = `${STAMP_ANIMATION_SEEN_KEY_PREFIX}${session?.user?.id || 'guest'}`;
 
   const loadSnapshot = useCallback(async (isRefresh = false) => {
     if (!isRefresh) {
@@ -463,9 +595,141 @@ const PassportScreen = () => {
     () => progressStampItems.filter(item => item.isEarned),
     [progressStampItems],
   );
-  const lockedProgressStampItems = useMemo(
-    () => progressStampItems.filter(item => !item.isEarned),
-    [progressStampItems],
+
+  const toStampAnimationToken = useCallback(
+    (item: ProgressStampItem) => `${item.key}:${item.earnedAt || 'earned'}`,
+    [],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSeenStampAnimations = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(stampAnimationStorageKey);
+        const parsed = raw ? JSON.parse(raw) : [];
+        const tokens = Array.isArray(parsed) ? parsed.filter(value => typeof value === 'string') : [];
+        if (!cancelled) {
+          seenStampAnimationsRef.current = new Set(tokens);
+          setQueuedStampAnimations([]);
+          setActiveStampAnimationToken(null);
+          setPlayingStampAnimationToken(null);
+          setFocusedStampToken(null);
+        }
+      } catch {
+        if (!cancelled) {
+          seenStampAnimationsRef.current = new Set();
+          setQueuedStampAnimations([]);
+          setActiveStampAnimationToken(null);
+          setPlayingStampAnimationToken(null);
+          setFocusedStampToken(null);
+        }
+      }
+    };
+
+    void loadSeenStampAnimations();
+    return () => {
+      cancelled = true;
+    };
+  }, [stampAnimationStorageKey]);
+
+  useEffect(() => {
+    if (!drawerOpen || activeTab !== 'stamps') return;
+
+    const unseenInDisplayOrder = earnedProgressStampItems
+      .map(item => toStampAnimationToken(item))
+      .filter(token => !seenStampAnimationsRef.current.has(token));
+
+    setQueuedStampAnimations(current => {
+      const next: string[] = [];
+      const pushed = new Set<string>();
+      const tryPush = (token: string) => {
+        if (!token || pushed.has(token) || seenStampAnimationsRef.current.has(token)) return;
+        pushed.add(token);
+        next.push(token);
+      };
+      current.forEach(tryPush);
+      unseenInDisplayOrder.forEach(tryPush);
+      return next;
+    });
+  }, [activeTab, drawerOpen, earnedProgressStampItems, toStampAnimationToken]);
+
+  useEffect(() => {
+    if (!drawerOpen || activeTab !== 'stamps') {
+      setPlayingStampAnimationToken(null);
+      setActiveStampAnimationToken(null);
+      setFocusedStampToken(null);
+      return;
+    }
+    if (activeStampAnimationToken || queuedStampAnimations.length === 0) return;
+
+    const [nextToken, ...rest] = queuedStampAnimations;
+    setQueuedStampAnimations(rest);
+    setActiveStampAnimationToken(nextToken);
+    setFocusedStampToken(nextToken);
+  }, [activeStampAnimationToken, activeTab, drawerOpen, queuedStampAnimations]);
+
+  useEffect(() => {
+    if (stampAnimationKickoffTimerRef.current) {
+      clearTimeout(stampAnimationKickoffTimerRef.current);
+      stampAnimationKickoffTimerRef.current = null;
+    }
+    if (!activeStampAnimationToken) return;
+
+    const layout = stampTileLayoutRef.current[activeStampAnimationToken];
+    if (layout && stampsScrollRef.current) {
+      const scrollTarget = Math.max(0, layout.y - 12);
+      stampsScrollRef.current.scrollTo({ y: scrollTarget, animated: true });
+    }
+
+    const focusedItem = progressStampItems.find(
+      item => item.isEarned && toStampAnimationToken(item) === activeStampAnimationToken,
+    );
+    if (focusedItem) {
+      AccessibilityInfo.announceForAccessibility(`Achievement unlocked: ${focusedItem.title}`);
+    }
+    Vibration.vibrate(34);
+
+    stampAnimationKickoffTimerRef.current = setTimeout(() => {
+      setPlayingStampAnimationToken(activeStampAnimationToken);
+    }, 220);
+
+    return () => {
+      if (stampAnimationKickoffTimerRef.current) {
+        clearTimeout(stampAnimationKickoffTimerRef.current);
+        stampAnimationKickoffTimerRef.current = null;
+      }
+    };
+  }, [activeStampAnimationToken, progressStampItems, toStampAnimationToken]);
+
+  useEffect(
+    () => () => {
+      if (stampAnimationKickoffTimerRef.current) {
+        clearTimeout(stampAnimationKickoffTimerRef.current);
+        stampAnimationKickoffTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
+  const handleStampTileLayout = useCallback((token: string, layout: { y: number; height: number }) => {
+    stampTileLayoutRef.current[token] = layout;
+  }, []);
+
+  const markStampAnimationComplete = useCallback(
+    (token: string) => {
+      if (!token || seenStampAnimationsRef.current.has(token)) return;
+      seenStampAnimationsRef.current.add(token);
+      setQueuedStampAnimations(current => current.filter(entry => entry !== token));
+      setPlayingStampAnimationToken(current => (current === token ? null : current));
+      setActiveStampAnimationToken(current => (current === token ? null : current));
+      setFocusedStampToken(current => (current === token ? null : current));
+      void AsyncStorage.setItem(
+        stampAnimationStorageKey,
+        JSON.stringify(Array.from(seenStampAnimationsRef.current)),
+      ).catch(() => {});
+    },
+    [stampAnimationStorageKey],
   );
 
   const initialMapRegion = useMemo(() => {
@@ -709,44 +973,32 @@ const PassportScreen = () => {
     }
 
     return (
-      <ScrollView contentContainerStyle={styles.drawerScrollContent} showsVerticalScrollIndicator={false}>
-        {renderDrawerNotices()}
-        <View style={styles.sectionBlock}>
-          <Text style={styles.sectionEyebrow}>Passport stamps</Text>
-          <Text style={styles.sectionTitle}>Achievement stamps already received</Text>
-          <Text style={styles.sectionBodyText}>
-            Earned stamps stay at the top. Locked stamps stay visible underneath so the next milestone is always readable.
-          </Text>
+      <ScrollView
+        ref={stampsScrollRef}
+        contentContainerStyle={styles.drawerScrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.stampGrid}>
+          {progressStampItems.map(item => {
+            const token = item.isEarned ? toStampAnimationToken(item) : null;
+            return (
+              <AchievementStampTile
+                key={item.key}
+                item={item}
+                manifestEntry={manifest[item.key]}
+                shouldAnimate={Boolean(token && token === playingStampAnimationToken)}
+                animationToken={token}
+                isFocused={Boolean(token && token === focusedStampToken)}
+                isDimmed={Boolean(activeStampAnimationToken && token !== activeStampAnimationToken)}
+                onLayout={layout => {
+                  if (!token) return;
+                  handleStampTileLayout(token, layout);
+                }}
+                onAnimationComplete={markStampAnimationComplete}
+              />
+            );
+          })}
         </View>
-
-        {earnedProgressStampItems.length ? (
-          <>
-            <Text style={styles.subsectionLabel}>Received</Text>
-            <View style={styles.stampGrid}>
-              {earnedProgressStampItems.map(item => (
-                <AchievementStampTile key={item.key} item={item} manifestEntry={manifest[item.key]} />
-              ))}
-            </View>
-          </>
-        ) : (
-          <View style={styles.emptyPanelCard}>
-            <Text style={styles.emptyPanelTitle}>No passport stamps received yet</Text>
-            <Text style={styles.emptyPanelBody}>
-              Your first achievement stamp appears after the first verified stop lands in Passport.
-            </Text>
-          </View>
-        )}
-
-        {lockedProgressStampItems.length ? (
-          <>
-            <Text style={styles.subsectionLabel}>In range</Text>
-            <View style={styles.stampGrid}>
-              {lockedProgressStampItems.map(item => (
-                <AchievementStampTile key={item.key} item={item} manifestEntry={manifest[item.key]} />
-              ))}
-            </View>
-          </>
-        ) : null}
       </ScrollView>
     );
   };
@@ -1335,7 +1587,50 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    rowGap: 12,
+    marginBottom: 2,
+  },
+  stampOnlyListContent: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+  },
+  stampOnlyListRow: {
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  stampOnlyTile: {
+    width: '48.5%',
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  stampOnlyArtworkWrap: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(26,26,26,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.78)',
+    padding: 10,
+  },
+  stampOnlyArtwork: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stampInkAnimated: {
+    width: '100%',
+  },
+  stampOnlyImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 14,
+  },
+  stampOnlyImageLocked: {
+    opacity: 0.35,
   },
   statsGrid: {
     gap: 12,
@@ -1460,40 +1755,45 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   stampTile: {
-    width: '48.2%',
+    width: '48.4%',
     borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(26,26,26,0.08)',
     backgroundColor: 'rgba(255,255,255,0.78)',
     paddingHorizontal: 14,
     paddingVertical: 14,
-    aspectRatio: 0.94,
+    minHeight: 320,
+    marginBottom: 12,
+  },
+  stampTileDimmed: {
+    opacity: 0.34,
+  },
+  stampTileFocused: {
+    borderColor: '#1A1A1A',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#111111',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 5,
   },
   stampTileTop: {
+    marginTop: 12,
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 10,
   },
-  stampTileGroup: {
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 9,
-    letterSpacing: 1.1,
-    textTransform: 'uppercase',
-  },
-  stampTileSerial: {
-    marginTop: 3,
-    color: theme.colors.textPrimary,
-    fontFamily: theme.typography.fonts.technicalBold,
-    fontSize: 9,
-    letterSpacing: 0.8,
+  stampTileTopCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 4,
   },
   stampTileArtwork: {
-    marginTop: 10,
+    width: '100%',
+    aspectRatio: 1,
     borderRadius: 18,
     borderWidth: 2,
-    minHeight: 98,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 10,
@@ -1514,6 +1814,7 @@ const styles = StyleSheet.create({
   stampTileImage: {
     width: '100%',
     height: '100%',
+    alignSelf: 'center',
   },
   stampTileImageLocked: {
     opacity: 0.4,
@@ -1536,12 +1837,14 @@ const styles = StyleSheet.create({
   },
   stampTileBody: {
     marginTop: 10,
+    minHeight: 62,
   },
   stampTileTitle: {
     color: theme.colors.textPrimary,
     fontFamily: theme.typography.fonts.black,
     fontSize: 14,
     lineHeight: 17,
+    minHeight: 34,
   },
   stampTileDescription: {
     marginTop: 4,
@@ -1549,6 +1852,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.fonts.narrative,
     fontSize: 11,
     lineHeight: 14,
+    minHeight: 28,
   },
   stampTileBadge: {
     minHeight: 28,
@@ -1560,9 +1864,6 @@ const styles = StyleSheet.create({
   progressBadgeEarned: {
     backgroundColor: 'rgba(46,108,77,0.12)',
   },
-  progressBadgeLocked: {
-    backgroundColor: palette.softGray,
-  },
   progressBadgeText: {
     fontFamily: theme.typography.fonts.technicalBold,
     fontSize: 9,
@@ -1571,9 +1872,6 @@ const styles = StyleSheet.create({
   },
   progressBadgeTextEarned: {
     color: '#1F4A35',
-  },
-  progressBadgeTextLocked: {
-    color: theme.colors.textSecondary,
   },
   progressBarTrack: {
     height: 6,
@@ -1592,7 +1890,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: 10,
-    marginTop: 8,
+    marginTop: 10,
   },
   stampTileCount: {
     color: theme.colors.textPrimary,
@@ -1606,6 +1904,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.fonts.narrative,
     fontSize: 10,
     lineHeight: 13,
+    minHeight: 26,
   },
   emptyPanelCard: {
     borderRadius: 22,

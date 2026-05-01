@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
+  Animated,
   BackHandler,
   FlatList,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   StyleSheet,
   Text,
   TextInput,
@@ -56,9 +59,9 @@ const CATEGORIES = [
   { id: 'outdoor', label: 'Outdoor', image: 'https://images.unsplash.com/photo-1501555088652-021faa106b9b?auto=format&fit=crop&q=80&w=400' },
   { id: 'culture', label: 'Culture', image: 'https://images.unsplash.com/photo-1467269204594-9661b134dd2b?auto=format&fit=crop&q=80&w=400' },
   { id: 'food', label: 'Food', image: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&q=80&w=400' },
-  { id: 'nightlife', label: 'Nightlife', image: 'https://picsum.photos/seed/nightlife-vibe/400/400' },
-  { id: 'family', label: 'Family', image: 'https://picsum.photos/seed/family-vibe/400/400' },
-  { id: 'hidden_gems', label: 'Secret', image: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&q=80&w=400' },
+  { id: 'nightlife', label: 'Nightlife', image: require('../../assets/vibes/nightlife.png') },
+  { id: 'family', label: 'Family', image: require('../../assets/vibes/family.png') },
+  { id: 'hidden_gems', label: 'Secret', image: require('../../assets/vibes/secret.png') },
 ];
 
 const POPULAR_CITIES = [
@@ -165,6 +168,9 @@ const areAddedFeedbackMapsEqual = (
 };
 
 const FALLBACK_RAIL_IMAGE = require('../../assets/icon.png');
+const RAIL_OVERFLOW_THRESHOLD = 8;
+const RAIL_EDGE_THRESHOLD = 12;
+type RailScrollDirection = 'left' | 'right' | null;
 
 const ExploreScreen = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -183,6 +189,8 @@ const ExploreScreen = () => {
   const [hasSearched, setHasSearched] = useState(false);
   const [pendingVibeId, setPendingVibeId] = useState<string | null>(null);
   const [showVibeSearchHint, setShowVibeSearchHint] = useState(false);
+  const [vibesRailDirection, setVibesRailDirection] = useState<RailScrollDirection>(null);
+  const [citiesRailDirection, setCitiesRailDirection] = useState<RailScrollDirection>(null);
   const [failedRailImages, setFailedRailImages] = useState<Record<string, true>>({});
   const [citySuggestions, setCitySuggestions] = useState<CitySuggestion[]>([]);
   const [autocompleteLoading, setAutocompleteLoading] = useState(false);
@@ -223,7 +231,21 @@ const ExploreScreen = () => {
     destination: null,
     query: '',
   });
+  const railArrowPulse = useRef(new Animated.Value(0)).current;
+  const vibesRailMetricsRef = useRef({ viewportWidth: 0, contentWidth: 0, scrollX: 0 });
+  const citiesRailMetricsRef = useRef({ viewportWidth: 0, contentWidth: 0, scrollX: 0 });
   const addedFeedbackByActivityIdentityRef = useRef(addedFeedbackByActivityIdentity);
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(railArrowPulse, { toValue: 1, duration: 780, useNativeDriver: true }),
+        Animated.timing(railArrowPulse, { toValue: 0, duration: 780, useNativeDriver: true }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [railArrowPulse]);
 
   useEffect(() => {
     addedFeedbackByActivityIdentityRef.current = addedFeedbackByActivityIdentity;
@@ -1462,6 +1484,58 @@ const ExploreScreen = () => {
     [pendingVibeId, vibeOptions],
   );
 
+  const resolveRailDirection = useCallback(
+    (viewportWidth: number, contentWidth: number, scrollX: number): RailScrollDirection => {
+      if (contentWidth <= viewportWidth + RAIL_OVERFLOW_THRESHOLD) return null;
+      return scrollX <= RAIL_EDGE_THRESHOLD ? 'right' : 'left';
+    },
+    [],
+  );
+
+  const syncVibesRailDirection = useCallback(() => {
+    const { viewportWidth, contentWidth, scrollX } = vibesRailMetricsRef.current;
+    const next = resolveRailDirection(viewportWidth, contentWidth, scrollX);
+    setVibesRailDirection(current => (current === next ? current : next));
+  }, [resolveRailDirection]);
+
+  const syncCitiesRailDirection = useCallback(() => {
+    const { viewportWidth, contentWidth, scrollX } = citiesRailMetricsRef.current;
+    const next = resolveRailDirection(viewportWidth, contentWidth, scrollX);
+    setCitiesRailDirection(current => (current === next ? current : next));
+  }, [resolveRailDirection]);
+
+  const renderRailScrollHint = useCallback(
+    (direction: RailScrollDirection) => {
+      if (!direction) return null;
+      const slide = railArrowPulse.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 5],
+      });
+      const opacity = railArrowPulse.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0.45, 1],
+      });
+      const translateX = direction === 'left' ? Animated.multiply(slide, -1) : slide;
+      return (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.railScrollHint,
+            direction === 'left' ? styles.railScrollHintLeft : styles.railScrollHintRight,
+            { opacity, transform: [{ translateX }] },
+          ]}
+        >
+          <ChevronRight
+            size={16}
+            color="#1A1A1A"
+            style={direction === 'left' ? styles.railScrollHintChevronLeft : undefined}
+          />
+        </Animated.View>
+      );
+    },
+    [railArrowPulse],
+  );
+
   const renderSearchInput = (compact = false) => (
     <View style={styles.searchInputWrap}>
       <View style={[styles.searchInputShell, compact && styles.searchInputShellCompact]}>
@@ -1605,64 +1679,96 @@ const ExploreScreen = () => {
 
               <View style={styles.emptySection}>
                 <Text style={styles.emptySectionTitle}>VIBES</Text>
-                <FlatList
-                  horizontal
-                  data={vibeOptions}
-                  keyExtractor={item => item.id}
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.vibesList}
-                  renderItem={({ item }) => {
-                    const isSelected =
-                      filters.categories.includes(item.id) || pendingVibeId === item.id;
-                    return (
-                      <TouchableOpacity
-                        style={styles.overlayTrendingItem}
-                        onPress={() => {
-                          void handleVibePress(item.id);
-                        }}
-                      >
-                        <View style={[styles.trendingCircleSmall, isSelected && styles.trendingCircleSmallSelected]}>
-                          <Image
-                            source={failedRailImages[`vibe:${item.id}`] ? FALLBACK_RAIL_IMAGE : { uri: item.image }}
-                            style={styles.trendingImage}
-                            onError={() => markRailImageFailed(`vibe:${item.id}`)}
-                          />
-                        </View>
-                        <Text style={[styles.trendingLabelSmall, isSelected && styles.trendingLabelSmallSelected]}>
-                          {item.label.toUpperCase()}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  }}
-                />
+                <View style={styles.emptyRailWrap}>
+                  <FlatList
+                    horizontal
+                    data={vibeOptions}
+                    keyExtractor={item => item.id}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.vibesList}
+                    onLayout={event => {
+                      vibesRailMetricsRef.current.viewportWidth = event.nativeEvent.layout.width;
+                      syncVibesRailDirection();
+                    }}
+                    onContentSizeChange={contentWidth => {
+                      vibesRailMetricsRef.current.contentWidth = contentWidth;
+                      syncVibesRailDirection();
+                    }}
+                    onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+                      vibesRailMetricsRef.current.scrollX = Math.max(0, event.nativeEvent.contentOffset.x);
+                      syncVibesRailDirection();
+                    }}
+                    scrollEventThrottle={16}
+                    renderItem={({ item }) => {
+                      const isSelected =
+                        filters.categories.includes(item.id) || pendingVibeId === item.id;
+                      return (
+                        <TouchableOpacity
+                          style={styles.overlayTrendingItem}
+                          onPress={() => {
+                            void handleVibePress(item.id);
+                          }}
+                        >
+                          <View style={[styles.trendingCircleSmall, isSelected && styles.trendingCircleSmallSelected]}>
+                            <Image
+                              source={failedRailImages[`vibe:${item.id}`] ? FALLBACK_RAIL_IMAGE : (typeof item.image === 'string' ? { uri: item.image } : item.image)}
+                              style={styles.trendingImage}
+                              onError={() => markRailImageFailed(`vibe:${item.id}`)}
+                            />
+                          </View>
+                          <Text style={[styles.trendingLabelSmall, isSelected && styles.trendingLabelSmallSelected]}>
+                            {item.label.toUpperCase()}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    }}
+                  />
+                  {renderRailScrollHint(vibesRailDirection)}
+                </View>
               </View>
 
               <View style={styles.emptySection}>
                 <Text style={styles.emptySectionTitle}>POPULAR CITIES</Text>
-                <FlatList
-                  horizontal
-                  data={POPULAR_CITIES}
-                  keyExtractor={item => item.id}
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.vibesList}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity
-                      style={styles.overlayTrendingItem}
-                      onPress={() => {
-                        void handleCitySelection({ cityLabel: item.label, source: 'popular_city' });
-                      }}
-                    >
-                      <View style={styles.trendingCircleSmall}>
-                        <Image
-                          source={failedRailImages[`city:${item.id}`] ? FALLBACK_RAIL_IMAGE : { uri: item.image }}
-                          style={styles.trendingImage}
-                          onError={() => markRailImageFailed(`city:${item.id}`)}
-                        />
-                      </View>
-                      <Text style={styles.trendingLabelSmall}>{item.label.toUpperCase()}</Text>
-                    </TouchableOpacity>
-                  )}
-                />
+                <View style={styles.emptyRailWrap}>
+                  <FlatList
+                    horizontal
+                    data={POPULAR_CITIES}
+                    keyExtractor={item => item.id}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.vibesList}
+                    onLayout={event => {
+                      citiesRailMetricsRef.current.viewportWidth = event.nativeEvent.layout.width;
+                      syncCitiesRailDirection();
+                    }}
+                    onContentSizeChange={contentWidth => {
+                      citiesRailMetricsRef.current.contentWidth = contentWidth;
+                      syncCitiesRailDirection();
+                    }}
+                    onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+                      citiesRailMetricsRef.current.scrollX = Math.max(0, event.nativeEvent.contentOffset.x);
+                      syncCitiesRailDirection();
+                    }}
+                    scrollEventThrottle={16}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={styles.overlayTrendingItem}
+                        onPress={() => {
+                          void handleCitySelection({ cityLabel: item.label, source: 'popular_city' });
+                        }}
+                      >
+                        <View style={styles.trendingCircleSmall}>
+                          <Image
+                            source={failedRailImages[`city:${item.id}`] ? FALLBACK_RAIL_IMAGE : (typeof item.image === 'string' ? { uri: item.image } : item.image)}
+                            style={styles.trendingImage}
+                            onError={() => markRailImageFailed(`city:${item.id}`)}
+                          />
+                        </View>
+                        <Text style={styles.trendingLabelSmall}>{item.label.toUpperCase()}</Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                  {renderRailScrollHint(citiesRailDirection)}
+                </View>
               </View>
             </View>
           ) : !loading ? (
@@ -1721,9 +1827,9 @@ const ExploreScreen = () => {
                               <View style={[styles.trendingCircleSmall, isSelected && styles.trendingCircleSmallSelected]}>
                                 <Image
                                   source={
-                                    failedRailImages[`vibe:${option.id}`] || !(option as { image?: string }).image
+                                    failedRailImages[`vibe:${option.id}`] || !(option as { image?: any }).image
                                       ? FALLBACK_RAIL_IMAGE
-                                      : { uri: (option as { image?: string }).image as string }
+                                      : (typeof (option as any).image === 'string' ? { uri: (option as any).image } : (option as any).image)
                                   }
                                   style={styles.trendingImage}
                                   onError={() => markRailImageFailed(`vibe:${option.id}`)}
@@ -2177,9 +2283,9 @@ const styles = StyleSheet.create({
   searchSuggestions: { marginTop: 20 },
   overlayTrending: { marginBottom: 32 },
   overlayTrendingList: { paddingRight: 32 },
-  overlayTrendingItem: { marginRight: 24, alignItems: 'center' },
-  trendingCircleSmall: { width: 56, height: 56, borderRadius: 28, overflow: 'hidden', backgroundColor: '#F0F0F0', marginBottom: 8 },
-  trendingLabelSmall: { fontFamily: 'Inter_700Bold', fontSize: 8, color: '#1A1A1A', letterSpacing: 1 },
+  overlayTrendingItem: { marginRight: 24, alignItems: 'center', minWidth: 96, paddingVertical: 4 },
+  trendingCircleSmall: { width: 84, height: 84, borderRadius: 42, overflow: 'hidden', backgroundColor: '#F0F0F0', marginBottom: 10 },
+  trendingLabelSmall: { fontFamily: 'Inter_700Bold', fontSize: 10, color: '#1A1A1A', letterSpacing: 0.8, textAlign: 'center' },
   suggestionTitle: { fontFamily: 'Inter_700Bold', fontSize: 12, color: '#999', letterSpacing: 2, marginBottom: 20 },
 
   emptyState: { minHeight: height * 0.72, paddingTop: 92, paddingHorizontal: 28, paddingBottom: 100, alignItems: 'center', justifyContent: 'flex-start' },
@@ -2200,8 +2306,25 @@ const styles = StyleSheet.create({
     color: '#3B3B3B',
   },
   emptySection: { width: '100%', maxWidth: 460, marginTop: 20 },
-  emptySectionTitle: { fontFamily: 'Inter_700Bold', fontSize: 12, color: '#999', letterSpacing: 1.5, marginBottom: 10 },
-  vibesList: { paddingRight: 8 },
+  emptySectionTitle: { fontFamily: 'Inter_700Bold', fontSize: 13, color: '#999', letterSpacing: 1.6, marginBottom: 12 },
+  vibesList: { paddingRight: 12 },
+  emptyRailWrap: { position: 'relative' },
+  railScrollHint: {
+    position: 'absolute',
+    top: 28,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    zIndex: 5,
+  },
+  railScrollHintLeft: { left: -2 },
+  railScrollHintRight: { right: 2 },
+  railScrollHintChevronLeft: { transform: [{ rotate: '180deg' }] },
   trendingCircleSmallSelected: {
     borderWidth: 2,
     borderColor: '#1A1A1A',

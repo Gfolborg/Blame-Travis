@@ -132,4 +132,51 @@ describe('bookingService', () => {
     const parsed = raw ? JSON.parse(raw) : null;
     expect(parsed?.pendingIntentId).toBeNull();
   });
+
+  it('supports retry after handoff failure without sticky state', async () => {
+    Linking.canOpenURL.mockResolvedValue(false);
+
+    const failedIntent = await bookingService.startBookingIntent({
+      activityId: 'provider:retry123',
+      provider: 'google_places',
+      providerUrl: 'not-a-valid-url',
+      surface: 'journeys',
+      itineraryId: 'it-2',
+      itineraryItemId: 'item-2',
+      commissionPartnerId: 'google_places',
+      commissionCampaignId: 'phase4_guest_local',
+      commissionRateBps: null,
+      commissionExpectedMinor: null,
+    });
+
+    const firstOpen = await bookingService.openProviderHandoff(failedIntent.id);
+    expect(firstOpen).toBe(false);
+
+    const failedSummary = await bookingService.getBookingStateByItineraryItem('item-2', 'provider:retry123');
+    expect(failedSummary.statusLabel).toBe('Failed');
+    expect(await bookingService.getPendingReturnIntent()).toBeNull();
+
+    Linking.canOpenURL.mockResolvedValue(true);
+    Linking.openURL.mockResolvedValue(undefined);
+
+    const retryIntent = await bookingService.startBookingIntent({
+      activityId: 'provider:retry123',
+      provider: 'google_places',
+      providerUrl: 'https://example.com/retry',
+      surface: 'journeys',
+      itineraryId: 'it-2',
+      itineraryItemId: 'item-2',
+      commissionPartnerId: 'google_places',
+      commissionCampaignId: 'phase4_guest_local',
+      commissionRateBps: null,
+      commissionExpectedMinor: null,
+    });
+
+    const retryOpen = await bookingService.openProviderHandoff(retryIntent.id);
+    expect(retryOpen).toBe(true);
+
+    const summaryAfterRetry = await bookingService.getBookingStateByItineraryItem('item-2', 'provider:retry123');
+    expect(summaryAfterRetry.intent?.id).toBe(retryIntent.id);
+    expect(summaryAfterRetry.statusLabel).toBe('Redirected');
+  });
 });

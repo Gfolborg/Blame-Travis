@@ -3,6 +3,7 @@ import { Enums } from './database';
 export type BookingIntentStatus = Enums<'booking_intent_status'>;
 export type BookingOutcomeStatus = Enums<'booking_outcome_status'>;
 export type BookingSurface = 'details' | 'journeys';
+export type AffiliatePlacementKey = 'details_primary_cta' | 'journeys_stop_cta' | 'explore_card';
 
 export interface BookingCommissionAttribution {
   commissionPartnerId: string | null;
@@ -11,7 +12,20 @@ export interface BookingCommissionAttribution {
   commissionExpectedMinor: number | null;
 }
 
+export interface BookingAffiliateAttribution {
+  partnerId?: string | null;
+  offerId?: string | null;
+  placementKey?: AffiliatePlacementKey | null;
+  copyVariant?: string | null;
+  disclosureWording?: string | null;
+}
+
 export interface BookingIntentRecord extends BookingCommissionAttribution {
+  partnerId: string | null;
+  offerId: string | null;
+  placementKey: AffiliatePlacementKey | null;
+  copyVariant: string | null;
+  disclosureWording: string | null;
   id: string;
   userId: string;
   activityId: string;
@@ -29,6 +43,11 @@ export interface BookingIntentRecord extends BookingCommissionAttribution {
 }
 
 export interface BookingOutcomeRecord extends BookingCommissionAttribution {
+  partnerId: string | null;
+  offerId: string | null;
+  placementKey: AffiliatePlacementKey | null;
+  copyVariant: string | null;
+  disclosureWording: string | null;
   id: string;
   bookingIntentId: string;
   userId: string;
@@ -50,7 +69,7 @@ export interface BookingStateSummary {
   statusTone: 'neutral' | 'success' | 'warning' | 'error';
 }
 
-export interface StartBookingIntentInput extends BookingCommissionAttribution {
+export interface StartBookingIntentInput extends BookingCommissionAttribution, BookingAffiliateAttribution {
   activityId: string;
   itineraryId?: string | null;
   itineraryItemId?: string | null;
@@ -59,7 +78,7 @@ export interface StartBookingIntentInput extends BookingCommissionAttribution {
   surface: BookingSurface;
 }
 
-export interface RecordBookingOutcomeInput extends BookingCommissionAttribution {
+export interface RecordBookingOutcomeInput extends BookingCommissionAttribution, BookingAffiliateAttribution {
   bookingIntentId: string;
   status: BookingOutcomeStatus;
   providerConfirmationRef?: string | null;
@@ -67,4 +86,3 @@ export interface RecordBookingOutcomeInput extends BookingCommissionAttribution 
   totalMinor?: number | null;
   currency?: string | null;
 }
-

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import {
   ActivityIndicator,
   AccessibilityInfo,
+  AppState,
   Animated,
   Easing,
   Modal,
@@ -27,6 +28,7 @@ import { Calendar } from 'react-native-calendars';
 import { useNotice } from '../components/TravisNotice';
 import { TravisSignal } from '../components/TravisSignal';
 import { isFeatureEnabled } from '../config/featureFlags';
+import { activitiesService } from '../services/activities';
 import { bookingService } from '../services/booking';
 import { isItineraryLimitError, itineraryService } from '../services/itinerary';
 import { theme } from '../theme';
@@ -111,7 +113,9 @@ type StoryItemCardProps = {
   canMoveBetweenDays: boolean;
   bookingTrackingEnabled: boolean;
   bookingState?: BookingStateSummary;
+  bookingOpening: boolean;
   onMove: (_item: ItineraryActivityItem) => void;
+  onBook: (_item: ItineraryActivityItem) => void;
   onRemove: (_item: ItineraryActivityItem) => void;
 };
 
@@ -125,7 +129,9 @@ const StoryItemCard = React.memo(
     canMoveBetweenDays,
     bookingTrackingEnabled,
     bookingState,
+    bookingOpening,
     onMove,
+    onBook,
     onRemove,
   }: StoryItemCardProps) => {
     const rotation = index % 2 === 0 ? '-1deg' : '1deg';
@@ -172,6 +178,17 @@ const StoryItemCard = React.memo(
             <View style={styles.storyCardFooter}>
               <Text style={styles.storyCardMeta}>{(item.category || 'SPOT').toUpperCase()} | {item.city?.toUpperCase() || 'UNKNOWN'}</Text>
               <View style={styles.stopActions}>
+                {bookingTrackingEnabled && (
+                  <TouchableOpacity
+                    onPress={() => onBook(item)}
+                    style={[styles.storyActionButton, styles.storyActionBookButton]}
+                    disabled={writesDisabled || bookingOpening}
+                    accessibilityLabel={`Book ${item.title}`}
+                  >
+                    <Ionicons name="ticket-outline" size={13} color={theme.colors.textPrimary} />
+                    <Text style={styles.storyActionMoveText}>{bookingOpening ? '...' : 'BOOK'}</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   onPress={() => onMove(item)}
                   style={[styles.storyActionButton, styles.storyActionMoveButton]}
@@ -202,7 +219,8 @@ const StoryItemCard = React.memo(
     prev.canMoveBetweenDays === next.canMoveBetweenDays &&
     prev.bookingTrackingEnabled === next.bookingTrackingEnabled &&
     prev.bookingState?.statusLabel === next.bookingState?.statusLabel &&
-    prev.bookingState?.statusTone === next.bookingState?.statusTone,
+    prev.bookingState?.statusTone === next.bookingState?.statusTone &&
+    prev.bookingOpening === next.bookingOpening,
 );
 
 const JourneysScreen: React.FC<Props> = ({ navigation }) => {
@@ -257,6 +275,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
   const [draftTitle, setDraftTitle] = useState('');
   
   const [bookingStateByItemId, setBookingStateByItemId] = useState<Record<string, BookingStateSummary>>({});
+  const [bookingOpeningByItemId, setBookingOpeningByItemId] = useState<Record<string, boolean>>({});
 
   const writesDisabled = offlineReadOnly || mutating || creating;
 
@@ -516,6 +535,72 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
     useCallback(() => {
       void loadBookingStates();
     }, [loadBookingStates]),
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active') {
+        void loadBookingStates();
+      }
+    });
+    return () => sub.remove();
+  }, [loadBookingStates]);
+
+  const handleBookItem = useCallback(
+    async (item: ItineraryActivityItem) => {
+      if (!bookingTrackingEnabled || writesDisabled) return;
+      if (bookingOpeningByItemId[item.id]) return;
+
+      setBookingOpeningByItemId(current => ({ ...current, [item.id]: true }));
+      try {
+        const details = await activitiesService.getActivityDetails(item.canonicalKey || item.activityId);
+        const providerUrl = details?.bookingDeepLink || null;
+
+        const intent = await bookingService.startBookingIntent({
+          activityId: item.canonicalKey || item.activityId,
+          itineraryId: activeItineraryId,
+          itineraryItemId: item.id,
+          provider: details?.provider || 'manual',
+          providerUrl,
+          surface: 'journeys',
+          commissionPartnerId: details?.provider || 'manual',
+          commissionCampaignId: 'journeys_stop_v1',
+          commissionRateBps: null,
+          commissionExpectedMinor: null,
+          partnerId: null,
+          offerId: null,
+          placementKey: null,
+          copyVariant: null,
+          disclosureWording: null,
+        });
+
+        const opened = await bookingService.openProviderHandoff(intent.id, providerUrl);
+        if (!opened) {
+          showNotice({
+            title: 'BOOKING ERROR',
+            message: 'Unable to connect to booking provider. Try again in a moment.',
+            type: 'error',
+          });
+        }
+      } catch {
+        showNotice({
+          title: 'BOOKING ERROR',
+          message: 'Unable to connect to booking provider. Try again in a moment.',
+          type: 'error',
+        });
+      } finally {
+        setBookingOpeningByItemId(current => ({ ...current, [item.id]: false }));
+        void loadBookingStates();
+      }
+    },
+    [
+      activeItineraryId,
+      bookingOpeningByItemId,
+      bookingTrackingEnabled,
+      loadBookingStates,
+      showNotice,
+      writesDisabled,
+    ],
   );
 
   const handleSaveInlineDetails = useCallback(async () => {
@@ -980,7 +1065,9 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
           canMoveBetweenDays={dayIndexes.length > 1}
           bookingTrackingEnabled={bookingTrackingEnabled}
           bookingState={bookingStateByItemId[item.id]}
+          bookingOpening={Boolean(bookingOpeningByItemId[item.id])}
           onMove={handleOpenMoveItem}
+          onBook={handleBookItem}
           onRemove={handleRemoveItem}
         />
       );
@@ -990,7 +1077,9 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
       dayIndexes.length,
       bookingTrackingEnabled,
       bookingStateByItemId,
+      bookingOpeningByItemId,
       handleOpenMoveItem,
+      handleBookItem,
       handleRemoveItem,
     ],
   );
@@ -1607,6 +1696,7 @@ const styles = StyleSheet.create({
   storyCardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
   storyCardMeta: { fontFamily: theme.typography.fonts.technicalBold, fontSize: 9, color: theme.colors.textSecondary, letterSpacing: 1 },
   storyActionButton: { width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceElevated, alignItems: 'center', justifyContent: 'center' },
+  storyActionBookButton: { width: 'auto', minWidth: 64, paddingHorizontal: 10, flexDirection: 'row', gap: 4, borderRadius: 14 },
   storyActionMoveButton: { width: 'auto', minWidth: 64, paddingHorizontal: 10, flexDirection: 'row', gap: 4, borderRadius: 14 },
   storyActionMoveText: { color: theme.colors.textPrimary, fontFamily: theme.typography.fonts.technicalBold, fontSize: 8, letterSpacing: 0.8 },
   mapModeContainer: { paddingBottom: 160 },

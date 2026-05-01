@@ -27,6 +27,11 @@ description: Deterministic Supabase data-model standards for discovery, itinerar
 - itinerary_items
 - booking_intents
 - booking_outcomes
+- affiliate_partners
+- affiliate_offers
+- affiliate_placements
+- affiliate_attributions
+- affiliate_payout_events
 
 ## Workflow
 1. Define table contracts and ownership fields.
@@ -54,3 +59,5 @@ description: Deterministic Supabase data-model standards for discovery, itinerar
 ## Non-Negotiables
 - No direct provider-secret storage in client-readable tables.
 - No schema changes without migration and verification notes.
+- Affiliate handoff links/signatures must be server-constructed only; never client-authored.
+- Affiliate data model must enforce validity windows, dedupe-support fields, and indexed attribution/payout read paths.

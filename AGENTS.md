@@ -67,6 +67,7 @@ Not allowed in MVP:
 - Every affiliate click/handoff must emit attribution telemetry with partner id, placement, and activity id.
 - Affiliate/partner UX is a user-helpful supplement to the core experience, not an interruption; it must remain optional and non-blocking.
 - No affiliate/partner UI should render unless implementation is complete, feature flags are enabled, and at least one active partner/offer is configured.
+- Affiliate surfaces must remain dark by default behind `affiliate_enabled`, `affiliate_details_enabled`, `affiliate_journeys_enabled`, and `affiliate_explore_badge_enabled` until explicit release activation.
 - Expansion path is phased: activity booking partners first, then hotels/cars supplement lanes, then flights after post-launch quality and trust gates.
 
 ## 4.1 Itinerary Targeting Rules
@@ -152,6 +153,7 @@ Security requirements:
 - temporary client-side fallback for provider web-service calls is permitted only for development continuity and must be explicitly disabled before production release
 - privileged scheduler/admin edge functions must require a non-public shared secret gate (for example `x-edge-cron-secret`)
 - privileged write edge functions must enforce authenticated ownership checks before mutating user-owned records
+- affiliate handoff URLs and attribution writes must be server-side only (edge action contract), with active offer/partner validation before returning outbound links
 
 ## 9. Sprint Execution Contract
 

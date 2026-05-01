@@ -1,6 +1,6 @@
 ﻿# Blame Travis Sprint Roadmap
 
-**Last Updated:** 2026-04-29
+**Last Updated:** 2026-05-01
 **Execution Model:** Vertical slice delivery by user outcome
 **Core Product:** Things-to-do discovery -> itinerary planning -> booking conversion -> retention
 
@@ -320,11 +320,11 @@ Create or verify SQL for itineraries and itinerary_items:
 - Sprint 3 acceptance gates passed.
 
 ### Scope Checklist
-- [ ] Implement booking CTA from details and itinerary surfaces.
-- [ ] Implement provider handoff flow (WebView/deep link per provider).
-- [ ] Track booking stages: started, completed, failed, abandoned.
-- [ ] Add fallback UI for provider failure and retry.
-- [ ] Add commission attribution fields where available.
+- [x] Implement booking CTA from details and itinerary surfaces.
+- [x] Implement provider handoff flow (WebView/deep link per provider).
+- [x] Track booking stages: started, completed, failed, abandoned.
+- [x] Add fallback UI for provider failure and retry.
+- [x] Add commission attribution fields where available.
 - [ ] Add affiliate/partnership disclosure labels on monetized booking placements.
 - [ ] Emit affiliate attribution events (impression/click/handoff) with partner + placement metadata.
 
@@ -398,6 +398,11 @@ Create or verify SQL for booking funnel:
   - Deleted retired screen implementations and removed route types from `RootStackParamList`.
   - Notification intents now resolve only to `MainTabs` targets (`Home`, `Journeys`, `Passport`) with itinerary nudges routed to `Journeys`.
   - Legacy Desk CTA fallbacks now route to `MainTabs` -> `Journeys`.
+- 2026-05-01: Restored and stabilized booking funnel parity across Details and Journeys:
+  - Re-added Journeys stop-card booking CTA and wired it to the same `start -> handoff -> return -> outcome/failure` lifecycle as Details.
+  - Centralized booking telemetry emission in `bookingService` so Details/Journeys both emit consistent `booking_intent_started` and `booking_provider_opened` payloads including itinerary/surface metadata.
+  - Added foreground refresh + post-action refresh for Journeys booking status chips to prevent stale state after provider return or outcome recording.
+  - Added retry regression test in `src/services/booking.test.ts` proving failed handoff can be retried without sticky disabled state.
 
 ---
 
@@ -420,7 +425,10 @@ Create or verify SQL for booking funnel:
 - [x] Design and implement Passport screen v1 (default/loading/empty/error states + accessibility pass).
 - [x] Design and implement Profile screen v1 (settings clarity, notice feedback, accessibility pass).
 - [ ] Complete API-live setup hardening for release (provider key boundary enforcement + deployment config alignment).
-- [ ] Define affiliate partner contract v1 (partner catalog, offer metadata, attribution fields, payout status model).
+- [x] Define affiliate partner contract v1 (partner catalog, offer metadata, attribution fields, payout status model).
+- [x] Implement affiliate dark-launch data model + RLS/index foundation.
+- [x] Implement affiliate edge handoff contract and client dark-gated service scaffolding.
+- [x] Add affiliate QA seed/cleanup/purge tooling plus verification runbook.
 
 ### Supabase Agent Prompt
 ```text
@@ -493,6 +501,14 @@ Create or verify SQL for personalization data:
 - 2026-04-30: Added affiliate monetization planning artifacts:
   - Added implementation contract `docs/monetization/affiliate-contract-v1.md`.
   - Added Details-first copy spec `docs/monetization/affiliate-ui-copy-plan-v1.md` with brand-forward CTA pattern, inline `Partner offer` disclosure, telemetry copy-variant fields, OTA appendix guidance, and partner-expansion rules.
+- 2026-05-01: Completed deployment Step 1 baseline dependency alignment for Expo SDK 54:
+  - Updated packages to SDK-expected versions: `expo@~54.0.34`, `expo-dev-client@~6.0.21`, `expo-image-picker@~17.0.11`, `expo-notifications@~0.32.17`.
+  - White-box validation passed: `npm run policy:lint`, `npx tsc --noEmit`, `npm run lint`, `npm test -- --runInBand`, and `npx expo-doctor` (17/17 checks).
+- 2026-05-01: Implemented Step 2 affiliate dark-launch foundation:
+  - Added migration `supabase/migrations/011_affiliate_foundation.sql` with affiliate enums, tables, validity constraints, dedupe-support fields, read-path indexes, and least-privilege RLS.
+  - Added edge endpoint `supabase/functions/affiliate-handoff/index.ts` with action handlers `resolve_offer`, `create_handoff`, `track_event`, server-only mock handoff adapter, active-offer validation, 10-minute dedupe, and Details-over-Explore precedence rules.
+  - Added client contracts `src/types/affiliate.ts` and `src/services/affiliate.ts` gated by `affiliate_enabled`, `affiliate_details_enabled`, `affiliate_journeys_enabled`, and `affiliate_explore_badge_enabled` (all default `false`).
+  - Added QA tooling `scripts/qa-affiliate-foundation.cjs` + npm scripts and runbook `docs/sprint-4/affiliate-qa-runbook.md` for deterministic seed/cleanup/purge/verify workflows.
 
 ---
 

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Linking } from 'react-native';
 
 import { supabase } from './supabase';
+import { exploreService } from './explore';
 import {
   BookingIntentRecord,
   BookingOutcomeRecord,
@@ -142,6 +143,56 @@ const getLatestIntentForTarget = (
 const getOutcomeForIntent = (outcomes: BookingOutcomeRecord[], intentId: string): BookingOutcomeRecord | null =>
   outcomes.find(outcome => outcome.bookingIntentId === intentId) || null;
 
+const buildIntentTelemetryMetadata = (
+  intent: BookingIntentRecord,
+  extra?: Record<string, unknown>,
+): Record<string, unknown> => ({
+  booking_intent_id: intent.id,
+  provider: intent.provider,
+  provider_url_present: Boolean(intent.providerUrl),
+  surface: intent.surface,
+  itinerary_id: intent.itineraryId,
+  itinerary_item_id: intent.itineraryItemId,
+  mode: intent.userId === GUEST_USER_ID ? 'guest_local' : 'authenticated',
+  auth_sync_required: intent.authSyncRequired,
+  commission_partner_id: intent.commissionPartnerId,
+  commission_campaign_id: intent.commissionCampaignId,
+  commission_rate_bps: intent.commissionRateBps,
+  commission_expected_minor: intent.commissionExpectedMinor,
+  affiliate_partner_id: intent.partnerId ?? null,
+  affiliate_offer_id: intent.offerId ?? null,
+  affiliate_placement_key: intent.placementKey ?? null,
+  affiliate_copy_variant: intent.copyVariant ?? null,
+  affiliate_disclosure_wording: intent.disclosureWording ?? null,
+  ...extra,
+});
+
+const emitBookingIntentStartedEvent = async (intent: BookingIntentRecord) => {
+  await exploreService.trackEvent({
+    eventName: 'booking_intent_started',
+    activityId: intent.activityId,
+    metadata: buildIntentTelemetryMetadata(intent),
+  });
+};
+
+const emitBookingProviderOpenedEvent = async (intent: BookingIntentRecord) => {
+  await exploreService.trackEvent({
+    eventName: 'booking_provider_opened',
+    activityId: intent.activityId,
+    metadata: buildIntentTelemetryMetadata(intent),
+  });
+};
+
+const emitBookingFailureEvent = async (intent: BookingIntentRecord, reason: string) => {
+  await exploreService.trackEvent({
+    eventName: 'booking_outcome_failed',
+    activityId: intent.activityId,
+    metadata: buildIntentTelemetryMetadata(intent, {
+      error_code: reason,
+    }),
+  });
+};
+
 const resolveDbActivityId = async (activityId: string): Promise<string | null> => {
   if (!activityId) return null;
   if (isUuid(activityId)) return activityId;
@@ -195,6 +246,11 @@ export const bookingService = {
       commissionCampaignId: input.commissionCampaignId || null,
       commissionRateBps: input.commissionRateBps ?? null,
       commissionExpectedMinor: input.commissionExpectedMinor ?? null,
+      partnerId: input.partnerId ?? null,
+      offerId: input.offerId ?? null,
+      placementKey: input.placementKey ?? null,
+      copyVariant: input.copyVariant ?? null,
+      disclosureWording: input.disclosureWording ?? null,
     };
 
     await mutateStore(state => {
@@ -203,6 +259,8 @@ export const bookingService = {
       state.lastHandoffAt = null;
       return intent;
     });
+
+    await emitBookingIntentStartedEvent(intent);
 
     return intent;
   },
@@ -215,12 +273,14 @@ export const bookingService = {
     const targetUrl = (providerUrl || intent.providerUrl || '').trim();
     if (!targetUrl) {
       await this.markIntentFailed(intentId, 'missing_provider_url');
+      await emitBookingFailureEvent(intent, 'missing_provider_url');
       return false;
     }
 
     const canOpen = await Linking.canOpenURL(targetUrl).catch(() => false);
     if (!canOpen) {
       await this.markIntentFailed(intentId, 'provider_url_not_supported');
+      await emitBookingFailureEvent(intent, 'provider_url_not_supported');
       return false;
     }
 
@@ -240,11 +300,16 @@ export const bookingService = {
       return true;
     });
 
+    const refreshedState = await readStore();
+    const refreshedIntent = refreshedState.intents.find(row => row.id === intentId) || intent;
+
     try {
       await Linking.openURL(targetUrl);
+      await emitBookingProviderOpenedEvent(refreshedIntent);
       return true;
     } catch {
       await this.markIntentFailed(intentId, 'provider_open_failed');
+      await emitBookingFailureEvent(refreshedIntent, 'provider_open_failed');
       return false;
     }
   },
@@ -306,6 +371,11 @@ export const bookingService = {
       commissionCampaignId: input.commissionCampaignId ?? intent.commissionCampaignId ?? null,
       commissionRateBps: input.commissionRateBps ?? intent.commissionRateBps ?? null,
       commissionExpectedMinor: input.commissionExpectedMinor ?? intent.commissionExpectedMinor ?? null,
+      partnerId: input.partnerId ?? intent.partnerId ?? null,
+      offerId: input.offerId ?? intent.offerId ?? null,
+      placementKey: input.placementKey ?? intent.placementKey ?? null,
+      copyVariant: input.copyVariant ?? intent.copyVariant ?? null,
+      disclosureWording: input.disclosureWording ?? intent.disclosureWording ?? null,
     };
 
     await mutateStore(current => {
@@ -361,7 +431,10 @@ export const bookingService = {
     }
 
     const outcome = getOutcomeForIntent(state.outcomes, intent.id);
-    if (outcome) return null;
+    if (outcome) {
+      await this.clearPendingReturnIntent(intent.id);
+      return null;
+    }
     return intent;
   },
 

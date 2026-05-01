@@ -463,6 +463,299 @@ export type Database = {
           },
         ]
       }
+      affiliate_attributions: {
+        Row: {
+          activity_id: string
+          attribution_status: Database["public"]["Enums"]["affiliate_attribution_status"]
+          click_ts: string
+          copy_variant: string | null
+          created_at: string
+          deduped: boolean
+          destination_city: string | null
+          disclosure_wording: string | null
+          event_name: Database["public"]["Enums"]["affiliate_event_name"]
+          expires_at: string
+          guest_id: string | null
+          id: string
+          metadata: Json
+          offer_id: string
+          partner_brand: string | null
+          partner_id: string
+          placement_id: string
+          placement_key: string
+          session_id: string
+          source_surface: string
+          user_id: string | null
+        }
+        Insert: {
+          activity_id: string
+          attribution_status?: Database["public"]["Enums"]["affiliate_attribution_status"]
+          click_ts?: string
+          copy_variant?: string | null
+          created_at?: string
+          deduped?: boolean
+          destination_city?: string | null
+          disclosure_wording?: string | null
+          event_name?: Database["public"]["Enums"]["affiliate_event_name"]
+          expires_at: string
+          guest_id?: string | null
+          id?: string
+          metadata?: Json
+          offer_id: string
+          partner_brand?: string | null
+          partner_id: string
+          placement_id: string
+          placement_key: string
+          session_id: string
+          source_surface: string
+          user_id?: string | null
+        }
+        Update: {
+          activity_id?: string
+          attribution_status?: Database["public"]["Enums"]["affiliate_attribution_status"]
+          click_ts?: string
+          copy_variant?: string | null
+          created_at?: string
+          deduped?: boolean
+          destination_city?: string | null
+          disclosure_wording?: string | null
+          event_name?: Database["public"]["Enums"]["affiliate_event_name"]
+          expires_at?: string
+          guest_id?: string | null
+          id?: string
+          metadata?: Json
+          offer_id?: string
+          partner_brand?: string | null
+          partner_id?: string
+          placement_id?: string
+          placement_key?: string
+          session_id?: string
+          source_surface?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "affiliate_attributions_activity_id_fkey"
+            columns: ["activity_id"]
+            isOneToOne: false
+            referencedRelation: "activities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_attributions_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "affiliate_offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_attributions_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "affiliate_partners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_attributions_placement_id_fkey"
+            columns: ["placement_id"]
+            isOneToOne: false
+            referencedRelation: "affiliate_placements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      affiliate_offers: {
+        Row: {
+          category_scope: string[]
+          commission_model: Database["public"]["Enums"]["affiliate_commission_model"]
+          commission_value: number | null
+          created_at: string
+          currency_code: string | null
+          destination_scope: string[]
+          id: string
+          metadata: Json
+          partner_id: string
+          provider_ref: string
+          status: Database["public"]["Enums"]["affiliate_offer_status"]
+          title: string
+          tracking_template: string
+          updated_at: string
+          valid_from: string
+          valid_to: string | null
+        }
+        Insert: {
+          category_scope?: string[]
+          commission_model?: Database["public"]["Enums"]["affiliate_commission_model"]
+          commission_value?: number | null
+          created_at?: string
+          currency_code?: string | null
+          destination_scope?: string[]
+          id?: string
+          metadata?: Json
+          partner_id: string
+          provider_ref: string
+          status?: Database["public"]["Enums"]["affiliate_offer_status"]
+          title: string
+          tracking_template: string
+          updated_at?: string
+          valid_from: string
+          valid_to?: string | null
+        }
+        Update: {
+          category_scope?: string[]
+          commission_model?: Database["public"]["Enums"]["affiliate_commission_model"]
+          commission_value?: number | null
+          created_at?: string
+          currency_code?: string | null
+          destination_scope?: string[]
+          id?: string
+          metadata?: Json
+          partner_id?: string
+          provider_ref?: string
+          status?: Database["public"]["Enums"]["affiliate_offer_status"]
+          title?: string
+          tracking_template?: string
+          updated_at?: string
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "affiliate_offers_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "affiliate_partners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      affiliate_partners: {
+        Row: {
+          created_at: string
+          default_commission_model: Database["public"]["Enums"]["affiliate_commission_model"]
+          disclosure_label: string
+          id: string
+          metadata: Json
+          name: string
+          slug: string
+          status: Database["public"]["Enums"]["affiliate_partner_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_commission_model?: Database["public"]["Enums"]["affiliate_commission_model"]
+          disclosure_label?: string
+          id?: string
+          metadata?: Json
+          name: string
+          slug: string
+          status?: Database["public"]["Enums"]["affiliate_partner_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_commission_model?: Database["public"]["Enums"]["affiliate_commission_model"]
+          disclosure_label?: string
+          id?: string
+          metadata?: Json
+          name?: string
+          slug?: string
+          status?: Database["public"]["Enums"]["affiliate_partner_status"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      affiliate_payout_events: {
+        Row: {
+          attribution_id: string | null
+          commission_amount: number | null
+          created_at: string
+          currency_code: string | null
+          event_ts: string
+          external_booking_ref: string | null
+          id: string
+          offer_id: string | null
+          partner_id: string
+          payout_status: Database["public"]["Enums"]["affiliate_payout_status"]
+          raw_payload: Json
+        }
+        Insert: {
+          attribution_id?: string | null
+          commission_amount?: number | null
+          created_at?: string
+          currency_code?: string | null
+          event_ts: string
+          external_booking_ref?: string | null
+          id?: string
+          offer_id?: string | null
+          partner_id: string
+          payout_status: Database["public"]["Enums"]["affiliate_payout_status"]
+          raw_payload?: Json
+        }
+        Update: {
+          attribution_id?: string | null
+          commission_amount?: number | null
+          created_at?: string
+          currency_code?: string | null
+          event_ts?: string
+          external_booking_ref?: string | null
+          id?: string
+          offer_id?: string | null
+          partner_id?: string
+          payout_status?: Database["public"]["Enums"]["affiliate_payout_status"]
+          raw_payload?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "affiliate_payout_events_attribution_id_fkey"
+            columns: ["attribution_id"]
+            isOneToOne: false
+            referencedRelation: "affiliate_attributions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_payout_events_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "affiliate_offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_payout_events_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "affiliate_partners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      affiliate_placements: {
+        Row: {
+          active: boolean
+          created_at: string
+          disclosure_required: boolean
+          id: string
+          placement_key: string
+          surface: Database["public"]["Enums"]["affiliate_placement_surface"]
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          disclosure_required?: boolean
+          id?: string
+          placement_key: string
+          surface: Database["public"]["Enums"]["affiliate_placement_surface"]
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          disclosure_required?: boolean
+          id?: string
+          placement_key?: string
+          surface?: Database["public"]["Enums"]["affiliate_placement_surface"]
+        }
+        Relationships: []
+      }
       global_hubs: {
         Row: {
           country_code: string | null
@@ -1059,6 +1352,26 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
+      affiliate_attribution_status:
+        | "candidate"
+        | "attributed"
+        | "expired"
+        | "superseded"
+      affiliate_commission_model: "cpa" | "rev_share" | "flat"
+      affiliate_event_name:
+        | "affiliate_impression"
+        | "affiliate_click"
+        | "affiliate_handoff_started"
+        | "affiliate_handoff_returned"
+        | "affiliate_booking_reported"
+        | "affiliate_commission_confirmed"
+      affiliate_offer_status: "active" | "paused" | "expired"
+      affiliate_partner_status: "active" | "paused" | "retired"
+      affiliate_payout_status: "reported" | "confirmed" | "rejected" | "reversed"
+      affiliate_placement_surface:
+        | "explore_card"
+        | "details_primary_cta"
+        | "journeys_stop_cta"
       activity_price_tier: "free" | "budget" | "mid" | "premium" | "unknown"
       activity_source: "google_places" | "foursquare" | "viator" | "manual"
       activity_status: "active" | "hidden" | "deprecated"
@@ -1207,6 +1520,29 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      affiliate_attribution_status: [
+        "candidate",
+        "attributed",
+        "expired",
+        "superseded",
+      ],
+      affiliate_commission_model: ["cpa", "rev_share", "flat"],
+      affiliate_event_name: [
+        "affiliate_impression",
+        "affiliate_click",
+        "affiliate_handoff_started",
+        "affiliate_handoff_returned",
+        "affiliate_booking_reported",
+        "affiliate_commission_confirmed",
+      ],
+      affiliate_offer_status: ["active", "paused", "expired"],
+      affiliate_partner_status: ["active", "paused", "retired"],
+      affiliate_payout_status: ["reported", "confirmed", "rejected", "reversed"],
+      affiliate_placement_surface: [
+        "explore_card",
+        "details_primary_cta",
+        "journeys_stop_cta",
+      ],
       activity_price_tier: ["free", "budget", "mid", "premium", "unknown"],
       activity_source: ["google_places", "foursquare", "viator", "manual"],
       activity_status: ["active", "hidden", "deprecated"],
