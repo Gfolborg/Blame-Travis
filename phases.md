@@ -651,6 +651,7 @@ Create or verify monetization reporting views:
   - Replaced cards with "Dossier Rows" separated by solid thick ink lines and large iconic markers.
   - Implemented a "Mock Sign-In" simulation: tap Google/Apple in Guest Mode to instantly see the full authenticated editorial experience.
   - Verified accessibility (tap targets, contrast) and stability on Android.
+- 2026-05-02: Codified Travis surface-placement policy across `AGENTS.md`, `gemini.md`, and `README.md` (required placement surfaces, non-blocking popup rules, and anti-overuse guardrails).
 
 ---
 

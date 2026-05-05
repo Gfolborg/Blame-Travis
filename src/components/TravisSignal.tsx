@@ -1,65 +1,75 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { User, Search, AlertCircle } from 'lucide-react-native';
-import { theme } from '../theme';
+import { View, StyleSheet, Image } from 'react-native';
 
-export type TravisStatus = 'idle' | 'thinking' | 'alert' | 'tracking';
+export type TravisStatus =
+  | 'idle'
+  | 'thinking'
+  | 'alert'
+  | 'tracking'
+  | 'encourage'
+  | 'search'
+  | 'celebrate';
+export type TravisVariant = 'core' | 'hero';
 
 interface TravisSignalProps {
   status?: TravisStatus;
   size?: number;
-  editorial?: boolean; // Toggles the luxury magazine aesthetic
+  editorial?: boolean; // Kept for API compatibility, though mainly controls shadow now
+  variant?: TravisVariant;
 }
+
+const ASSET_MAP: Record<TravisVariant, Record<TravisStatus, any>> = {
+  core: {
+    idle: require('../../assets/travis/travis_idle.png'),
+    thinking: require('../../assets/travis/travis_thinking.png'),
+    alert: require('../../assets/travis/travis_alert.png'),
+    tracking: require('../../assets/travis/travis_tracking.png'),
+    encourage: require('../../assets/travis/travis_encourage.png'),
+    search: require('../../assets/travis/travis_search.png'),
+    celebrate: require('../../assets/travis/travis_celebrate.png'),
+  },
+  hero: {
+    idle: require('../../assets/travis/travis_idle.png'),
+    thinking: require('../../assets/travis/travis_thinking.png'),
+    alert: require('../../assets/travis/travis_alert.png'), // fallback
+    tracking: require('../../assets/travis/travis_tracking.png'),
+    encourage: require('../../assets/travis/travis_encourage.png'),
+    search: require('../../assets/travis/travis_search.png'),
+    celebrate: require('../../assets/travis/travis_celebrate.png'),
+  }
+};
 
 /**
  * TravisSignal — The visual anchor for Travis.
- * Represents his presence and current 'mental' state using a character silhouette placeholder.
+ * Represents his presence and current 'mental' state using generated character assets.
  */
 export const TravisSignal: React.FC<TravisSignalProps> = ({ 
   status = 'idle', 
   size = 40,
-  editorial = true
+  editorial = true,
+  variant = 'core'
 }) => {
-  const getStatusColor = () => {
-    if (editorial) return theme.colors.textPrimary; // Pure Midnight Ink for editorial mode
-    
-    switch (status) {
-      case 'alert':
-        return theme.colors.error;
-      case 'tracking':
-        return theme.colors.success;
-      case 'thinking':
-        return theme.colors.primary;
-      case 'idle':
-      default:
-        return theme.colors.textPrimary;
-    }
-  };
-
-  const getIcon = () => {
-    if (status === 'thinking' || status === 'tracking') return <Search size={size * 0.55} color={theme.colors.surface} strokeWidth={1.5} />;
-    if (status === 'alert') return <AlertCircle size={size * 0.55} color={theme.colors.surface} strokeWidth={1.5} />;
-    return <User size={size * 0.6} color={theme.colors.surface} strokeWidth={1.5} />;
-  };
-
-  const isAnimated = status === 'thinking' || status === 'tracking';
+  
+  const source = ASSET_MAP[variant][status] || ASSET_MAP['core'][status];
 
   return (
     <View style={[styles.container, { width: size, height: size }]}>
       <View
         style={[
-          styles.silhouetteBg,
+          styles.imageContainer,
           editorial && styles.editorialShadow, // Softer shadow for editorial mode
           {
             width: size,
             height: size,
             borderRadius: size / 2,
-            backgroundColor: getStatusColor(),
-            transform: [{ rotate: status === 'thinking' ? '-3deg' : '0deg' }, { scale: isAnimated ? 1.03 : 1 }],
           },
         ]}
       >
-        {getIcon()}
+        <Image 
+          source={source} 
+          style={{ width: '100%', height: '100%' }} 
+          resizeMode="cover"
+        />
       </View>
     </View>
   );
@@ -70,7 +80,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  silhouetteBg: {
+  imageContainer: {
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#1C1C1E',
@@ -78,6 +88,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 3,
     elevation: 3,
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
   },
   editorialShadow: {
     shadowColor: '#000',

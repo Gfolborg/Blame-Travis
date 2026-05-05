@@ -76,7 +76,7 @@ const OnboardingScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TravisSignal status="thinking" size={80} />
+        <TravisSignal status="thinking" size={80} variant="hero" />
         <View style={styles.progressContainer}>
           {ONBOARDING_STEPS.map((_, i) => (
             <View 

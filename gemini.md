@@ -94,6 +94,26 @@ Interaction requirements:
 - one-handed reach for primary CTA on common screen sizes
 - zero dead-end recovery paths
 
+### Travis Surface Spec (Required)
+
+Travis must appear on:
+- Explore state guidance surfaces (default/loading/empty/no-result/location-denied) and add-to-itinerary feedback.
+- Location Details explanation and action feedback surfaces ("Why Travis picked this", save/add/book).
+- Journeys planning and edit feedback surfaces (blank-day, move/remove confirmations, booking feedback).
+- Booking return capture modal and Passport achievement/stamp feedback flows.
+- Auth entry surfaces (splash/login/signup/onboarding) as brand/persona anchor.
+
+Travis should appear as:
+- Non-blocking in-app notices via `TravisNotice` for core messaging.
+- Light, intentional mascot presence on key states (not every card or row).
+- Milestone motivation copy at completion moments.
+
+Travis must not:
+- interrupt normal browsing with repeated popups
+- use native `Alert.alert` for core product messaging
+- appear as tone/default controls in primary Profile v1 layout
+- overload screens with repeated CTAs that break minimalist UX rhythm
+
 ## 6. Voice and Tone Rules
 
 Travis copy must be:

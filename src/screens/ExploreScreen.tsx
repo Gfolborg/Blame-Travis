@@ -1657,7 +1657,7 @@ const ExploreScreen = () => {
         ListEmptyComponent={
           !hasSearched ? (
             <View style={styles.emptyState}>
-              <TravisSignal status="tracking" size={120} editorial />
+              <TravisSignal status="tracking" size={150} variant="hero" editorial />
               <Text style={styles.emptyTitle}>Where Shall We Go?</Text>
               <Text style={styles.emptySub}>Search to discover things to do.</Text>
               {renderSearchInput(false)}
@@ -1773,7 +1773,7 @@ const ExploreScreen = () => {
             </View>
           ) : !loading ? (
             <View style={styles.emptyState}>
-              <TravisSignal status="thinking" size={120} editorial />
+              <TravisSignal status="search" size={150} variant="hero" editorial />
               <Text style={styles.emptyTitle}>No results found</Text>
               <Text style={styles.emptySub}>Travis couldn't find matches for this scan. Try another destination.</Text>
             </View>

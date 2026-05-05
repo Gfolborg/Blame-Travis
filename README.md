@@ -87,6 +87,27 @@ Travis remains the host voice and recommendation narrator.
 - LLM output is for framing, ranking explanation, tone, and itinerary storytelling.
 - Travis copy is confident, adventurous, lightly sarcastic, and motivating.
 
+### Travis Surface Spec
+
+Travis must be visible in these product surfaces:
+- Explore: default/loading/empty/no-result/denied-location guidance and add-to-itinerary feedback.
+- Location Details: "Why Travis picked this" explanation and save/add/book feedback.
+- Journeys: itinerary guidance, blank-day states, move/remove confirmations, and booking feedback.
+- Booking return flow: booking outcome capture modal after provider handoff return.
+- Passport return flow: auto-stamp success and achievement unlock feedback.
+- Auth entry surfaces: splash/login/signup/onboarding persona anchor.
+
+Travis should be supportive, not noisy:
+- Use non-blocking in-app notice messaging (`TravisNotice`) for core product communication.
+- Use lightweight visual presence (`TravisSignal`) on key states only.
+- Keep milestone motivation moments (first stamp, chapter completion, itinerary creation).
+
+Travis should not:
+- interrupt normal browse/compare loops with repeated popups
+- rely on native `Alert.alert` for core messaging
+- appear as primary Profile tone/default controls in v1
+- overwhelm minimalist surfaces with repeated CTAs
+
 ## UX and Design Direction
 
 - Keep the **Explorer's Map** visual system:

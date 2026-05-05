@@ -8,6 +8,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../theme';
+import { TravisSignal, TravisStatus } from './TravisSignal';
 
 interface NoticeAction {
   text: string;
@@ -87,6 +88,11 @@ export const NoticeProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return theme.colors.textSecondary;
   }, [currentNotice?.type]);
 
+  const noticeSignalStatus = useMemo<TravisStatus | null>(() => {
+    if (currentNotice?.type === 'success') return 'celebrate';
+    return null;
+  }, [currentNotice?.type]);
+
   return (
     <NoticeContext.Provider value={{ showNotice, hideNotice }}>
       {children}
@@ -106,6 +112,11 @@ export const NoticeProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             >
               {hasActions ? (
                 <View style={styles.sheetContent}>
+                  {noticeSignalStatus && (
+                    <View style={styles.sheetSignalWrap}>
+                      <TravisSignal status={noticeSignalStatus} size={56} />
+                    </View>
+                  )}
                   <Text style={styles.sheetTitle}>{currentNotice.title}</Text>
                   <Text style={styles.sheetMessage}>{currentNotice.message}</Text>
                   <View style={styles.actionRow}>
@@ -143,7 +154,11 @@ export const NoticeProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                   accessibilityRole="button"
                   accessibilityLabel={`${currentNotice.title}. ${currentNotice.message}`}
                 >
-                  <View style={[styles.toastDot, { backgroundColor: toneColor }]} />
+                  {noticeSignalStatus ? (
+                    <TravisSignal status={noticeSignalStatus} size={24} />
+                  ) : (
+                    <View style={[styles.toastDot, { backgroundColor: toneColor }]} />
+                  )}
                   <View style={styles.toastTextWrap}>
                     <Text style={styles.toastTitle} numberOfLines={1}>
                       {currentNotice.title}
@@ -228,6 +243,10 @@ const styles = StyleSheet.create({
   },
   toastTextWrap: {
     flex: 1,
+  },
+  sheetSignalWrap: {
+    alignItems: 'center',
+    marginBottom: 10,
   },
   toastTitle: {
     color: '#FFFFFF',

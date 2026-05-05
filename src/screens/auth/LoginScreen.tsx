@@ -68,7 +68,7 @@ const LoginScreen = () => {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
           <View style={styles.header}>
-            <TravisSignal status="thinking" size={100} />
+            <TravisSignal status="thinking" size={100} variant="hero" />
             <Text style={styles.title}>Welcome Back, Explorer</Text>
             <Text style={styles.subtitle}>Travis is waiting for your next move. Sign in to check your desk.</Text>
           </View>

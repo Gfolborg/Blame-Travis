@@ -33,7 +33,7 @@ export const PassportAutoStampCoordinator = () => {
   const lastStampAttemptByPlaceRef = useRef<Map<string, number>>(new Map());
   const stampingRef = useRef(false);
 
-  const refreshActiveStops = useCallback(async () => {
+  const refreshActiveStops = useCallback(async (): Promise<ActiveStopsState> => {
     try {
       const next = await passportService.listActiveItineraryStops();
       activeStopsRef.current = {
@@ -43,8 +43,13 @@ export const PassportAutoStampCoordinator = () => {
       if (!next.itineraryId || !next.stops.length) {
         dwellCandidateRef.current = null;
       }
+      return {
+        itineraryId: next.itineraryId,
+        stops: next.stops,
+      };
     } catch {
       // no-op: keep previous context and retry on next interval
+      return activeStopsRef.current;
     }
   }, []);
 
@@ -154,8 +159,19 @@ export const PassportAutoStampCoordinator = () => {
   useEffect(() => {
     let mounted = true;
 
+    const stopForegroundWatch = async () => {
+      if (watchRef.current) {
+        watchRef.current.remove();
+        watchRef.current = null;
+      }
+    };
+
     const ensureForegroundWatch = async () => {
-      await refreshActiveStops();
+      const nextStops = await refreshActiveStops();
+      if (!nextStops.itineraryId || !nextStops.stops.length) {
+        await stopForegroundWatch();
+        return;
+      }
 
       const currentPermission = await Location.getForegroundPermissionsAsync();
       let status = currentPermission.status;
@@ -191,16 +207,13 @@ export const PassportAutoStampCoordinator = () => {
       }
     };
 
-    const stopForegroundWatch = async () => {
-      if (watchRef.current) {
-        watchRef.current.remove();
-        watchRef.current = null;
-      }
-    };
-
     void ensureForegroundWatch();
     refreshIntervalRef.current = setInterval(() => {
-      void refreshActiveStops();
+      void refreshActiveStops().then(nextStops => {
+        if (!nextStops.itineraryId || !nextStops.stops.length) {
+          void stopForegroundWatch();
+        }
+      });
     }, LOCATION_REFRESH_INTERVAL_MS);
 
     const appStateSub = AppState.addEventListener('change', (nextState: AppStateStatus) => {

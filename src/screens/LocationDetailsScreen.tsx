@@ -569,7 +569,7 @@ const LocationDetailsScreen: React.FC<Props> = ({ navigation, route }) => {
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <TravisSignal status="thinking" size={60} editorial />
+        <TravisSignal status="thinking" size={90} editorial />
         <Text style={styles.loadingText}>CURATING DOSSIER...</Text>
       </View>
     );

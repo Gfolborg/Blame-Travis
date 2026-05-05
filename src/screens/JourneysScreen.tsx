@@ -1110,9 +1110,9 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
   if (!bundle || !activeItineraryId) {
     return (
       <View style={styles.centeredState}>
-        <TravisSignal status="idle" size={80} editorial />
-        <Text style={styles.stateTitle}>No Active Dossier</Text>
-        <Text style={styles.stateSubtitle}>Every great journey needs a narrative shell.</Text>
+        <TravisSignal status="encourage" size={110} variant="hero" editorial />
+        <Text style={styles.stateTitle}>No Active Plan</Text>
+        <Text style={styles.stateSubtitle}>Every great journey needs a narrative</Text>
         <TouchableOpacity style={styles.primaryCta} onPress={() => setCreateOpen(true)}>
           <Text style={styles.primaryCtaText}>Create Itinerary</Text>
         </TouchableOpacity>
@@ -1276,7 +1276,7 @@ const JourneysScreen: React.FC<Props> = ({ navigation }) => {
             <TouchableOpacity onPress={handleDeleteItinerary} style={styles.settingsButton}>
               <Trash2 size={18} color={theme.colors.error} />
             </TouchableOpacity>
-            <TravisSignal size={48} status={mutating ? 'thinking' : 'idle'} editorial />
+            <TravisSignal size={64} status={mutating ? 'thinking' : 'idle'} editorial />
           </View>
         </View>
       </View>

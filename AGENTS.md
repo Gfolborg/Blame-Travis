@@ -101,6 +101,27 @@ Preferred lexicon:
 - top picks
 - hidden gems
 
+### Travis Surface Spec (Required)
+
+Travis must be present on these user-facing surfaces:
+- Explore: default/loading/empty/no-result/denied-location guidance and add-to-itinerary feedback.
+- Location Details: "Why Travis picked this" narrative plus save/add/book feedback.
+- Journeys: itinerary guidance, blank-day guidance, move/remove confirmations, and booking feedback.
+- Booking return flow: booking outcome capture modal after provider handoff return.
+- Passport return flow: auto-stamp success feedback and achievement unlock flow.
+- Auth entry surfaces: splash/login/signup/onboarding brand/persona anchor.
+
+Travis should be present (non-blocking, supportive):
+- Global in-app notice layer for success/warning/error messaging (`TravisNotice`).
+- Light visual mascot presence (`TravisSignal`) on key state surfaces only.
+- Motivational copy on milestone moments (first stamp, chapter completion, itinerary created).
+
+Travis must not be overused:
+- no interruptive popups during normal browse/compare interactions
+- no native `Alert.alert` for core product messaging
+- no Travis tone/default controls in primary Profile v1 layout
+- no aggressive repeated Travis CTAs that degrade minimalist discovery UX
+
 ## 6. UX and Accessibility Contract
 
 Mandatory UX behavior:

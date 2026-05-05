@@ -83,7 +83,7 @@ const SignUpScreen = () => {
       <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.header}>
-            <TravisSignal status="tracking" size={100} />
+            <TravisSignal status="tracking" size={100} variant="hero" />
             <Text style={styles.title}>Join the Expedition</Text>
             <Text style={styles.subtitle}>Travis is ready to plan. Give him your details and let us get moving.</Text>
           </View>

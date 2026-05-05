@@ -31,6 +31,10 @@ description: Design-system governance for token fidelity, component reuse, and v
 - Reusable components used consistently
 - Visual hierarchy consistent with design system
 - Accessibility contrast and typography standards met
+- Travis surface placement remains consistent with repository policy (`AGENTS.md`/`gemini.md`/`README.md`):
+  - present on required core surfaces
+  - non-blocking notice-first messaging
+  - no repetitive popup spam on browse flows
 
 ## Non-Negotiables
 - One-off visual divergence without approval is not allowed.
